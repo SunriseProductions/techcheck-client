@@ -1,0 +1,28 @@
+# Worktrees / Claude / AI artefacts — never publish
+.worktrees/
+.claude/
+.claude-keep/
+.github/scheduled_tasks.lock
+docs/superpowers/
+WORKLOG.md
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+
+# Build-time secrets — never publish. private/secrets.env.example is the
+# tracked template; private/secrets.env is the maintainer's real file.
+private/secrets.env
+
+# Build outputs
+/build/
+cmd/techcheck/build/bin/
+cmd/techcheck/frontend/wailsjs/
+cmd/techcheck/frontend/dist/
+
+# Stray local binaries
+/SunriseTechCheck
+/SunriseTechCheck.app
+
+# OS / editor
+*.log
+.DS_Store

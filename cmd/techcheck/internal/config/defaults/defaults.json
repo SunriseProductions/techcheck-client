@@ -1,0 +1,7 @@
+{
+  "per_test_timeout_seconds": 15,
+  "upload_timeout_seconds": 30,
+  "upload_retries": 2,
+  "omit_wifi_ssid": false,
+  "udp_probe_magic": "PFLT"
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "SunriseTechCheck",
+  "outputfilename": "SunriseTechCheck",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "Sunrise",
+    "email": ""
+  },
+  "info": {
+    "productName": "Sunrise Tech Check",
+    "productVersion": "0.1.9",
+    "copyright": "Copyright 2026 Sunrise",
+    "comments": "Network readiness diagnostic"
+  }
+}
