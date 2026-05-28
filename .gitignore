@@ -1,4 +1,4 @@
-# Worktrees / Claude / AI artefacts — never publish
+# Editor / tool / scratchpad artefacts — never publish
 .worktrees/
 .claude/
 .claude-keep/
