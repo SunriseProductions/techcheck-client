@@ -27,10 +27,15 @@ ifeq (,$(strip $(UPLOAD_TOKEN)$(INGEST_URL)$(IT_CONTACT_EMAIL)$(FALLBACK_POPS_JS
   $(warning No build-time secrets supplied — building unauthenticated artifacts)
 endif
 
-LDFLAGS := -X '$(PKG)/cmd/techcheck/internal/config/defaults.UploadToken=$(UPLOAD_TOKEN)' \
-           -X '$(PKG)/cmd/techcheck/internal/config/defaults.IngestURL=$(INGEST_URL)' \
-           -X '$(PKG)/cmd/techcheck/internal/config/defaults.ITContactEmail=$(IT_CONTACT_EMAIL)' \
-           -X '$(PKG)/cmd/techcheck/internal/config/defaults.FallbackPOPsJSON=$(FALLBACK_POPS_JSON)'
+# LDFLAGS uses shell-side variable expansion ($$VAR → $VAR at make parse
+# time; shell expands at recipe time). Make-side $(VAR) would inline the
+# raw value, and FALLBACK_POPS_JSON contains double quotes that would
+# break the surrounding shell quoting. Deferring to shell-time keeps the
+# JSON's quotes as literal data inside the expanded value.
+LDFLAGS := -X '$(PKG)/cmd/techcheck/internal/config/defaults.UploadToken=$$UPLOAD_TOKEN' \
+           -X '$(PKG)/cmd/techcheck/internal/config/defaults.IngestURL=$$INGEST_URL' \
+           -X '$(PKG)/cmd/techcheck/internal/config/defaults.ITContactEmail=$$IT_CONTACT_EMAIL' \
+           -X '$(PKG)/cmd/techcheck/internal/config/defaults.FallbackPOPsJSON=$$FALLBACK_POPS_JSON'
 
 .PHONY: version test \
         build-mac-arm64 build-mac-x64 build-windows-x64 \
