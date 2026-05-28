@@ -54,11 +54,13 @@ jobs:
         if: matrix.goos == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Build
+        working-directory: cmd/techcheck
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }}
       - name: Rename artifact
+        working-directory: cmd/techcheck
         shell: bash
         run: |
           set -e
@@ -84,7 +86,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SunriseTechCheck-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: artifact/*
+          path: cmd/techcheck/artifact/*
 
   release:
     needs: build
