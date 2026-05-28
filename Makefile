@@ -20,11 +20,27 @@ DMG_ICON_PX := 96
 # automatically — Make picks them up from the environment.
 ifneq (,$(wildcard private/secrets.env))
   include private/secrets.env
-  export UPLOAD_TOKEN INGEST_URL IT_CONTACT_EMAIL FALLBACK_POPS_JSON
+  export UPLOAD_TOKEN INGEST_URL IT_CONTACT_EMAIL FALLBACK_POPS_JSON \
+         APPLE_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD
 endif
 
 ifeq (,$(strip $(UPLOAD_TOKEN)$(INGEST_URL)$(IT_CONTACT_EMAIL)$(FALLBACK_POPS_JSON)))
   $(warning No build-time secrets supplied — building unauthenticated artifacts)
+endif
+
+# macOS code signing. Default is ad-hoc ("-") so local builds work without an
+# Apple Developer cert installed. Set APPLE_SIGN_IDENTITY to the full identity
+# string (e.g. "Developer ID Application: Sunrise Productions Ltd (TEAMID)")
+# to produce a distributable, notarisable signature.
+SIGN_IDENTITY := $(if $(strip $(APPLE_SIGN_IDENTITY)),$(APPLE_SIGN_IDENTITY),-)
+ENTITLEMENTS  := $(WAILS_DIR)/build/darwin/entitlements.plist
+# --timestamp requires the real cert + Apple's timestamp server; ad-hoc can't
+# sign with timestamp. Entitlements still apply to ad-hoc — useful for
+# verifying the entitlement file is correct locally before the cert arrives.
+ifneq ($(SIGN_IDENTITY),-)
+  CODESIGN_FLAGS := --force --options runtime --timestamp --entitlements $(ENTITLEMENTS)
+else
+  CODESIGN_FLAGS := --force --options runtime --entitlements $(ENTITLEMENTS)
 endif
 
 # LDFLAGS uses shell-side variable expansion ($$VAR → $VAR at make parse
@@ -39,8 +55,10 @@ LDFLAGS := -X '$(PKG)/cmd/techcheck/internal/config/defaults.UploadToken=$$UPLOA
 
 .PHONY: version test \
         build-mac-arm64 build-mac-x64 build-windows-x64 \
+        sign-mac-arm64  sign-mac-x64 \
         dist-mac-arm64  dist-mac-x64  dist-windows-x64 \
-        build-desktop clean-dist
+        notarize-mac-arm64 notarize-mac-x64 \
+        build-desktop release-desktop clean-dist verify-sign-mac
 
 version:
 	@echo "VERSION=$(VERSION)"
@@ -80,11 +98,52 @@ define package-mac-dmg
 		$(BIN)/$(NAME).app
 endef
 
-dist-mac-arm64: build-mac-arm64
+sign-mac-arm64: build-mac-arm64
+	codesign $(CODESIGN_FLAGS) --sign "$(SIGN_IDENTITY)" $(BIN)/$(NAME).app
+
+sign-mac-x64: build-mac-x64
+	codesign $(CODESIGN_FLAGS) --sign "$(SIGN_IDENTITY)" $(BIN)/$(NAME).app
+
+# verify-sign-mac inspects whatever .app is currently in build/bin. Use after
+# a sign-mac-* target. Catches missing entitlements, broken signature,
+# Gatekeeper rejection.
+verify-sign-mac:
+	codesign --verify --deep --strict --verbose=2 $(BIN)/$(NAME).app
+	codesign --display --entitlements - --xml $(BIN)/$(NAME).app | head -30
+	@echo "--- spctl assessment ---"
+	spctl --assess --type execute --verbose=4 $(BIN)/$(NAME).app || echo "(spctl rejection expected for ad-hoc; success expected for Developer ID)"
+
+dist-mac-arm64: sign-mac-arm64
 	$(call package-mac-dmg,arm64)
 
-dist-mac-x64: build-mac-x64
+dist-mac-x64: sign-mac-x64
 	$(call package-mac-dmg,x64)
+
+# notarize-mac-* submits the packaged DMG to Apple's notary service, waits
+# for the result, and staples the ticket onto the DMG on success. Skipped
+# (warned, not failed) under ad-hoc signing. Requires APPLE_ID, APPLE_TEAM_ID,
+# and APPLE_APP_PASSWORD (an app-specific password generated at
+# appleid.apple.com → Sign-In and Security → App-Specific Passwords).
+define notarize-dmg
+	@if [ "$(SIGN_IDENTITY)" = "-" ]; then \
+		echo "skip notarize-$(1): ad-hoc signing (APPLE_SIGN_IDENTITY unset)"; \
+	else \
+		test -n "$(APPLE_ID)"           || (echo "APPLE_ID not set";           exit 1); \
+		test -n "$(APPLE_TEAM_ID)"      || (echo "APPLE_TEAM_ID not set";      exit 1); \
+		test -n "$(APPLE_APP_PASSWORD)" || (echo "APPLE_APP_PASSWORD not set"; exit 1); \
+		xcrun notarytool submit $(DIST)/$(NAME)-$(VERSION)-$(1).dmg \
+			--apple-id "$(APPLE_ID)" --team-id "$(APPLE_TEAM_ID)" \
+			--password "$(APPLE_APP_PASSWORD)" --wait; \
+		xcrun stapler staple $(DIST)/$(NAME)-$(VERSION)-$(1).dmg; \
+		xcrun stapler validate $(DIST)/$(NAME)-$(VERSION)-$(1).dmg; \
+	fi
+endef
+
+notarize-mac-arm64: dist-mac-arm64
+	$(call notarize-dmg,arm64)
+
+notarize-mac-x64: dist-mac-x64
+	$(call notarize-dmg,x64)
 
 dist-windows-x64: build-windows-x64
 	@test -n "$(VERSION)" || (echo "VERSION is empty — check cmd/techcheck/internal/report/report.go ToolVersion"; exit 1)
@@ -96,5 +155,13 @@ dist-windows-x64: build-windows-x64
 
 build-desktop: dist-mac-arm64 dist-mac-x64 dist-windows-x64
 	@echo
-	@echo "Desktop artifacts for $(VERSION):"
+	@echo "Desktop artifacts for $(VERSION) (signed identity: $(SIGN_IDENTITY)):"
+	@ls -lh $(DIST)/
+
+# release-desktop is build-desktop + Apple notarisation + ticket stapling.
+# Fails fast if APPLE_SIGN_IDENTITY isn't set — there's no point notarising
+# an ad-hoc signature, Apple will reject it.
+release-desktop: notarize-mac-arm64 notarize-mac-x64 dist-windows-x64
+	@echo
+	@echo "Release artifacts for $(VERSION) (signed by: $(SIGN_IDENTITY)):"
 	@ls -lh $(DIST)/

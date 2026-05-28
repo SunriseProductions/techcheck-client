@@ -42,6 +42,14 @@ go test ./cmd/techcheck/tests/e2e/... -v -timeout 120s    # end-to-end against l
 
 A source build with no `private/secrets.env` will compile and run, but uploads to the production Sunrise ingest fail without authentication. Point the tool at your own ingest via the sidecar config or provide your own `private/secrets.env` (see `private/secrets.env.example`).
 
+## macOS signing & notarisation
+
+`make build-desktop` produces ad-hoc-signed `.app` bundles by default — usable on the build machine but rejected by Gatekeeper elsewhere. For a distributable build:
+
+1. Install a `Developer ID Application` certificate in your login keychain.
+2. Set `APPLE_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD` in `private/secrets.env` (see `private/secrets.env.example`).
+3. Run `make release-desktop` — builds, signs with hardened runtime + the network-client entitlement, submits each DMG to Apple's notary service, and staples the ticket. Takes ~10–30 minutes per DMG depending on Apple's queue.
+
 ## Companion server
 
 The regional probe servers the client tests against are in [`techcheck-beacons`](https://github.com/sunriseproductions/techcheck-beacons).
