@@ -5,6 +5,7 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -25,6 +26,48 @@ import (
 	"github.com/sunriseproductions/techcheck-client/cmd/techcheck/internal/upload"
 )
 
+// Paths to pre-built mock binaries, populated by TestMain. Building once and
+// launching directly (vs `go run` per launch) keeps cmd.Process.Pid pointed
+// at the actual mock — so cmd.Process.Kill() kills the mock, not a wrapper.
+// Orphaned mocks holding the test binary's stderr fd were what tripped
+// go test's WaitDelay.
+var (
+	mockprobeBin  string
+	mockingestBin string
+)
+
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "e2e-mocks-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "e2e TestMain: mkdtemp:", err)
+		os.Exit(1)
+	}
+	root := repoRootFromCwd()
+	for name, pkg := range map[string]string{
+		"mockprobe":  "./cmd/mockprobe",
+		"mockingest": "./cmd/mockingest",
+	} {
+		bin := filepath.Join(tmp, name)
+		c := exec.Command("go", "build", "-o", bin, pkg)
+		c.Dir = root
+		c.Stderr = os.Stderr
+		if err := c.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, "e2e TestMain: build", name, ":", err)
+			os.RemoveAll(tmp)
+			os.Exit(1)
+		}
+		switch name {
+		case "mockprobe":
+			mockprobeBin = bin
+		case "mockingest":
+			mockingestBin = bin
+		}
+	}
+	code := m.Run()
+	os.RemoveAll(tmp)
+	os.Exit(code)
+}
+
 // TestFullPipelineAgainstMocks verifies:
 //   - the mock probe serves the documented endpoints and UDP echo
 //   - the mock ingest round-trips a report and returns an id
@@ -37,12 +80,12 @@ func TestFullPipelineAgainstMocks(t *testing.T) {
 	probeHTTP, probeUDP := freePort(t), freeUDPPort(t)
 	ingestPort := freePort(t)
 
-	probe := startBinary(t, "./cmd/mockprobe",
+	probe := startBinary(t, mockprobeBin,
 		"-http", "127.0.0.1:"+probeHTTP,
 		"-udp", "127.0.0.1:"+probeUDP)
 	defer stop(probe)
 
-	ingest := startBinary(t, "./cmd/mockingest",
+	ingest := startBinary(t, mockingestBin,
 		"-addr", "127.0.0.1:"+ingestPort)
 	defer stop(ingest)
 
@@ -119,11 +162,9 @@ func TestFullPipelineAgainstMocks(t *testing.T) {
 
 // -- helpers --
 
-func startBinary(t *testing.T, pkg string, args ...string) *exec.Cmd {
+func startBinary(t *testing.T, bin string, args ...string) *exec.Cmd {
 	t.Helper()
-	full := append([]string{"run", pkg}, args...)
-	cmd := exec.Command("go", full...)
-	cmd.Dir = repoRoot(t)
+	cmd := exec.Command(bin, args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Start())
@@ -180,10 +221,13 @@ func atoi(t *testing.T, s string) int {
 	return n
 }
 
-func repoRoot(t *testing.T) string {
-	t.Helper()
+// repoRootFromCwd is the TestMain variant of repoRoot — same calculation,
+// but cannot use *testing.T (TestMain runs before any test).
+func repoRootFromCwd() string {
 	wd, err := os.Getwd()
-	require.NoError(t, err)
+	if err != nil {
+		panic(err)
+	}
 	// cmd/techcheck/tests/e2e → repo root is four levels up.
 	return filepath.Clean(filepath.Join(wd, "..", "..", "..", ".."))
 }
