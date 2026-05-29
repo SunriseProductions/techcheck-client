@@ -128,7 +128,7 @@ function buildUpdateControl(status, opts) {
   }
 
   const wrap = document.createElement('span');
-  wrap.className = 'update-banner-actions';
+  wrap.className = 'update-banner-install';
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -152,7 +152,7 @@ function buildUpdateControl(status, opts) {
       } catch (err) {
         phase = 'idle';
         btn.disabled = false;
-        progress.textContent = `Error: ${err}`;
+        progress.textContent = `Error: ${err?.message ?? err}`;
       }
       return;
     }
@@ -165,7 +165,7 @@ function buildUpdateControl(status, opts) {
       } catch (err) {
         phase = 'ready';
         btn.disabled = false;
-        progress.textContent = `Error: ${err}`;
+        progress.textContent = `Error: ${err?.message ?? err}`;
       }
     }
   });

@@ -51,7 +51,8 @@ async function checkForUpdate() {
     let canSelfUpdate = false;
     try {
       canSelfUpdate = await mod.CanSelfUpdate();
-    } catch (_) {
+    } catch (e) {
+      console.warn('[updater] CanSelfUpdate unavailable:', e);
       canSelfUpdate = false;
     }
 
