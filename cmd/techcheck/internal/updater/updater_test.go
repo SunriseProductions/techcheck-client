@@ -194,3 +194,34 @@ func TestCheck_KeepsHTTPSDownloadURL(t *testing.T) {
 		t.Errorf("DownloadURL = %q; want https://ok/x.dmg", s.DownloadURL)
 	}
 }
+
+func TestCheck_PopulatesArtifactShaAndSize(t *testing.T) {
+	srv := fakeServer(t, 200, map[string]any{
+		"app_id":               "sunrise-techcheck",
+		"latest":               "0.2.0",
+		"released_at":          "2026-04-20T14:00:00Z",
+		"is_current_supported": true,
+		"is_update_available":  true,
+		"artifact": map[string]any{
+			"platform":     "darwin",
+			"arch":         "arm64",
+			"download_url": "https://example.com/x.dmg",
+			"sha256":       "DEADBEEF",
+			"size_bytes":   1234,
+		},
+	})
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	s, err := Check(ctx, srv.URL, "sunrise-techcheck", "0.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SHA256 != "DEADBEEF" {
+		t.Errorf("SHA256 = %q, want DEADBEEF", s.SHA256)
+	}
+	if s.SizeBytes != 1234 {
+		t.Errorf("SizeBytes = %d, want 1234", s.SizeBytes)
+	}
+}

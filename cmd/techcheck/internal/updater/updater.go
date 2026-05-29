@@ -25,6 +25,8 @@ type Status struct {
 	ReleasedAt       time.Time
 	ReleaseNotesHTML string
 	DownloadURL      string
+	SHA256           string
+	SizeBytes        int64
 }
 
 type apiResponse struct {
@@ -95,5 +97,7 @@ func Check(ctx context.Context, ingestBase, appID, currentVersion string) (Statu
 		ReleasedAt:       released,
 		ReleaseNotesHTML: body.ReleaseNotesHTML,
 		DownloadURL:      downloadURL,
+		SHA256:           body.Artifact.SHA256,
+		SizeBytes:        body.Artifact.SizeBytes,
 	}, nil
 }
