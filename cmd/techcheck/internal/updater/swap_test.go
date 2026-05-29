@@ -79,3 +79,25 @@ func TestWaitForExit_ReturnsAfterChildDies(t *testing.T) {
 		t.Error("waitForExit took too long")
 	}
 }
+
+func TestWaitForExit_TimesOutWhileAlive(t *testing.T) {
+	// our own process is alive, so a short timeout must yield an error
+	if err := waitForExit(os.Getpid(), 200*time.Millisecond); err == nil {
+		t.Fatal("expected timeout error while pid is alive")
+	}
+}
+
+func TestWaitForExit_ReturnsImmediatelyIfDead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses unix process semantics")
+	}
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Wait() // reap so the pid is dead
+	if err := waitForExit(pid, 2*time.Second); err != nil {
+		t.Errorf("waitForExit on dead pid: %v", err)
+	}
+}

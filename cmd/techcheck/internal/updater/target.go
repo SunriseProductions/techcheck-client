@@ -54,11 +54,13 @@ func TargetWritable(target string) bool {
 	return true
 }
 
-// CleanupLeftovers removes any `.old` / `.new` siblings left next to target by
-// a swap whose best-effort cleanup did not finish. Safe to call on every
-// startup; best-effort.
+// CleanupLeftovers removes `.old` and the staged sibling left next to target by
+// a swap whose best-effort cleanup did not finish. It is a no-op when target is
+// absent, so it can never delete the last surviving copy of the app. Best-effort.
 func CleanupLeftovers(target string) {
-	for _, suffix := range []string{".old", ".new"} {
-		_ = os.RemoveAll(target + suffix)
+	if _, err := os.Stat(target); err != nil {
+		return // only sweep when a valid install is present
 	}
+	_ = os.RemoveAll(target + ".old")
+	_ = os.RemoveAll(stagedPath(filepath.Dir(target)))
 }

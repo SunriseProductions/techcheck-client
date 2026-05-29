@@ -19,7 +19,7 @@ func RunApplyUpdateFromArgs(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *pid == 0 || *staged == "" || *target == "" {
+	if *pid < 1 || *staged == "" || *target == "" {
 		return fmt.Errorf("apply-update: --pid, --staged and --target are required")
 	}
 	return RunApplyUpdate(*pid, *staged, *target)
@@ -68,7 +68,9 @@ func renameSwapDir(staged, target string) error {
 	return nil
 }
 
-// relaunch starts the freshly-installed app, detached from this helper.
+// relaunch starts the freshly-installed app. The helper exits immediately
+// afterwards, so the new process reparents to launchd (darwin, via `open`)
+// or init. No explicit detachment is performed.
 func relaunch(target string) error {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" {

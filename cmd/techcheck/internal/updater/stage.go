@@ -17,20 +17,27 @@ const (
 	stagedExeWin = "." + appName + ".exe.new"
 )
 
+// stagedPath returns the staging sibling next to the install target's dir.
+func stagedPath(targetDir string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(targetDir, stagedAppMac)
+	}
+	return filepath.Join(targetDir, stagedExeWin)
+}
+
 // Stage extracts the update payload from artifactPath into targetDir, next to
 // where the swap will place it (same directory -> same volume -> rename is
 // atomic-ish). Returns the staged path. Any pre-existing staged path is
 // removed first.
 func Stage(artifactPath, targetDir string) (string, error) {
+	staged := stagedPath(targetDir)
 	if runtime.GOOS == "darwin" {
-		staged := filepath.Join(targetDir, stagedAppMac)
 		_ = os.RemoveAll(staged) // .app is a directory bundle
 		if err := extractDMGApp(artifactPath, staged); err != nil {
 			return "", err
 		}
 		return staged, nil
 	}
-	staged := filepath.Join(targetDir, stagedExeWin)
 	_ = os.Remove(staged) // single .exe file
 	if err := extractZipExe(artifactPath, staged); err != nil {
 		return "", err

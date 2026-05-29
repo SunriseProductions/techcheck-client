@@ -76,17 +76,37 @@ func TestTargetWritable(t *testing.T) {
 func TestCleanupLeftovers(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "SunriseTechCheck.app")
+	if err := os.MkdirAll(target, 0o755); err != nil { // present, valid install
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(target+".old", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target+".new", []byte("x"), 0o644); err != nil {
+	staged := stagedPath(dir)
+	if err := os.MkdirAll(staged, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	CleanupLeftovers(target)
 	if _, err := os.Stat(target + ".old"); !os.IsNotExist(err) {
 		t.Error(".old not removed")
 	}
-	if _, err := os.Stat(target + ".new"); !os.IsNotExist(err) {
-		t.Error(".new not removed")
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Error("staged leftover not removed")
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Error("target itself must not be removed")
+	}
+}
+
+func TestCleanupLeftovers_NoopWhenTargetAbsent(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "SunriseTechCheck.app") // never created
+	old := target + ".old"
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	CleanupLeftovers(target)
+	if _, err := os.Stat(old); err != nil {
+		t.Error(".old must be preserved when target is absent")
 	}
 }
