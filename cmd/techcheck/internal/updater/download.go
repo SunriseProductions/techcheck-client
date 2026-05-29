@@ -47,7 +47,7 @@ func Download(ctx context.Context, url, wantSHA string, wantSize int64, dest str
 
 	limit := int64(hardCap)
 	if wantSize > 0 {
-		limit = wantSize + 4096 // small slack for benign discrepancies
+		limit = wantSize
 	}
 
 	h := sha256.New()
@@ -58,7 +58,7 @@ func Download(ctx context.Context, url, wantSHA string, wantSize int64, dest str
 		if n > 0 {
 			written += int64(n)
 			if written > limit {
-				return fmt.Errorf("updater: response exceeds expected size")
+				return fmt.Errorf("updater: response exceeds limit: %d > %d", written, limit)
 			}
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				return werr
