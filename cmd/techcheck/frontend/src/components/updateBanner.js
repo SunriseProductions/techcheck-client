@@ -56,7 +56,7 @@ function renderBar({ level, message, status, opts, includeReleaseNotes }) {
     const notes = document.createElement('button');
     notes.type = 'button';
     notes.className = 'update-banner-link';
-    notes.textContent = ‘See what’s new’;
+    notes.textContent = 'See what’s new';
     notes.addEventListener('click', () => {
       document.body.appendChild(renderReleaseNotesModal(status.ReleaseNotesHTML));
     });
