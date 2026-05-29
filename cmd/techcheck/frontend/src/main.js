@@ -47,10 +47,38 @@ async function checkForUpdate() {
   try {
     const mod = await import('../wailsjs/go/wizard/App.js');
     const status = await mod.CheckForUpdate();
-    const banner = renderUpdateBanner(status);
+
+    let canSelfUpdate = false;
+    try {
+      canSelfUpdate = await mod.CanSelfUpdate();
+    } catch (_) {
+      canSelfUpdate = false;
+    }
+
+    const opts = {
+      canSelfUpdate,
+      updateFns: {
+        download: () => mod.DownloadUpdate(),
+        apply: () => mod.ApplyUpdate(),
+      },
+    };
+
+    const banner = renderUpdateBanner(status, opts);
     if (!banner) return;
     const app = document.getElementById('app');
     app.parentNode.insertBefore(banner, app);
+
+    if (window.runtime && window.runtime.EventsOn) {
+      window.runtime.EventsOn('update_progress', (d) => {
+        if (opts.updateFns.onProgress) opts.updateFns.onProgress(d.done, d.total);
+      });
+      window.runtime.EventsOn('update_ready', () => {
+        if (opts.updateFns.onReady) opts.updateFns.onReady();
+      });
+      window.runtime.EventsOn('update_error', (d) => {
+        if (opts.updateFns.onError) opts.updateFns.onError(d && d.error);
+      });
+    }
   } catch (err) {
     console.warn('[updater] CheckForUpdate unavailable:', err);
   }
