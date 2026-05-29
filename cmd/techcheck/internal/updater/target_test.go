@@ -16,6 +16,26 @@ func TestResolveTarget_DarwinWalksToApp(t *testing.T) {
 	}
 }
 
+func TestResolveTarget_DarwinExeIsApp(t *testing.T) {
+	got, err := resolveTarget("darwin", "/Applications/Foo.app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/Applications/Foo.app" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestResolveTarget_DarwinCaseInsensitive(t *testing.T) {
+	got, err := resolveTarget("darwin", "/Applications/Foo.APP/Contents/MacOS/Foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/Applications/Foo.APP" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestResolveTarget_DarwinNotInBundle(t *testing.T) {
 	_, err := resolveTarget("darwin", "/usr/local/bin/techcheck")
 	if err == nil {
@@ -29,6 +49,16 @@ func TestResolveTarget_WindowsReturnsExe(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != `C:\Program Files\SunriseTechCheck\SunriseTechCheck.exe` {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestResolveTarget_LinuxReturnsExe(t *testing.T) {
+	got, err := resolveTarget("linux", "/opt/techcheck/techcheck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/opt/techcheck/techcheck" {
 		t.Errorf("got %q", got)
 	}
 }

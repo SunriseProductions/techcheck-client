@@ -27,7 +27,7 @@ func resolveTarget(goos, exe string) (string, error) {
 	if goos == "darwin" {
 		dir := exe
 		for {
-			if strings.HasSuffix(dir, ".app") {
+			if strings.HasSuffix(strings.ToLower(filepath.Base(dir)), ".app") {
 				return dir, nil
 			}
 			parent := filepath.Dir(dir)
