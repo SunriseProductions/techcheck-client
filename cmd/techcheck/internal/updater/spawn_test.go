@@ -16,11 +16,17 @@ func TestCopyFile(t *testing.T) {
 	if err := copyFile(src, dst, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(dst)
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(got) != "binary-bytes" {
 		t.Errorf("dst content = %q", got)
 	}
-	info, _ := os.Stat(dst)
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if info.Mode().Perm() != 0o755 {
 		t.Errorf("dst mode = %v, want 0755", info.Mode().Perm())
 	}
