@@ -35,6 +35,13 @@ type App struct {
 	cancel     context.CancelFunc
 	lastLocal  string
 	lastUpload *upload.Response
+
+	running bool
+
+	updateMu     sync.Mutex
+	updateReady  bool
+	updateStaged string
+	updateTarget string
 }
 
 // NewApp constructs the app with config loaded from the baked-in defaults
@@ -101,6 +108,90 @@ func (a *App) CheckForUpdate() updater.Status {
 	return s
 }
 
+// SetRunningForTest toggles the run-in-progress flag. Test-only seam.
+func (a *App) SetRunningForTest(v bool) {
+	a.mu.Lock()
+	a.running = v
+	a.mu.Unlock()
+}
+
+// CanSelfUpdate reports whether an in-place update can be performed: the binary
+// is laid out as an installed app and its directory is writable. When false the
+// frontend keeps the browser-download fallback.
+func (a *App) CanSelfUpdate() bool {
+	target, err := updater.InstallTarget()
+	if err != nil {
+		return false
+	}
+	return updater.TargetWritable(target)
+}
+
+// DownloadUpdate fetches and verifies the latest artifact in the background and
+// stages it next to the install target. Progress and outcome are reported via
+// the "update_progress" / "update_ready" / "update_error" events. Returns
+// immediately; an error here means the download could not even be started.
+func (a *App) DownloadUpdate() error {
+	s := a.CheckForUpdate()
+	if !s.OK || s.DownloadURL == "" {
+		return fmt.Errorf("no update available")
+	}
+	target, err := updater.InstallTarget()
+	if err != nil {
+		return err
+	}
+	parent := a.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	go func() {
+		tmp, err := os.MkdirTemp("", "techcheck-update")
+		if err != nil {
+			a.emit("update_error", map[string]any{"error": err.Error()})
+			return
+		}
+		artifact := filepath.Join(tmp, "artifact")
+		err = updater.Download(parent, s.DownloadURL, s.SHA256, s.SizeBytes, artifact, func(done, total int64) {
+			a.emit("update_progress", map[string]any{"done": done, "total": total})
+		})
+		if err != nil {
+			a.emit("update_error", map[string]any{"error": err.Error()})
+			return
+		}
+		staged, err := updater.Stage(artifact, filepath.Dir(target))
+		if err != nil {
+			a.emit("update_error", map[string]any{"error": err.Error()})
+			return
+		}
+		a.updateMu.Lock()
+		a.updateReady, a.updateStaged, a.updateTarget = true, staged, target
+		a.updateMu.Unlock()
+		a.emit("update_ready", map[string]any{})
+	}()
+	return nil
+}
+
+// ApplyUpdate spawns the detached helper and quits so the swap can complete.
+// Refused while a tech check is running, or if nothing has been downloaded.
+func (a *App) ApplyUpdate() error {
+	a.mu.Lock()
+	running := a.running
+	a.mu.Unlock()
+	if running {
+		return fmt.Errorf("a tech check is running")
+	}
+	a.updateMu.Lock()
+	ready, staged, target := a.updateReady, a.updateStaged, a.updateTarget
+	a.updateMu.Unlock()
+	if !ready {
+		return fmt.Errorf("no update downloaded")
+	}
+	if err := updater.SpawnHelper(staged, target); err != nil {
+		return err
+	}
+	wruntime.Quit(a.ctx)
+	return nil
+}
+
 // popsURL derives the POP registry URL from the ingest URL by stripping the
 // path and appending /api/v1/config/pops. E.g.
 // "https://telemetry.example/api/v1/reports" -> "https://telemetry.example/api/v1/config/pops".
@@ -132,6 +223,9 @@ func noopEmit(ctx context.Context, event string, optionalData ...interface{}) {}
 // Startup is called by Wails once the runtime context is available.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	if target, err := updater.InstallTarget(); err == nil {
+		updater.CleanupLeftovers(target)
+	}
 }
 
 // ITContactEmail is shown on the fallback screen. Configured value.
@@ -178,6 +272,7 @@ func (a *App) StartRun(fullName, email string) error {
 	r.Consent.Accepted = true
 	r.Consent.At = time.Now().UTC()
 	a.current = r
+	a.running = true
 	a.mu.Unlock()
 
 	go a.run(runCtx, r)
@@ -239,6 +334,11 @@ func (a *App) LocalReportPath() string {
 }
 
 func (a *App) run(ctx context.Context, r *report.Report) {
+	defer func() {
+		a.mu.Lock()
+		a.running = false
+		a.mu.Unlock()
+	}()
 	a.emit("progress", map[string]any{"phase": "sysinfo_start"})
 	m, err := sysinfo.Collect(ctx, sysinfo.Options{OmitWifiSSID: a.cfg.OmitWifiSSID})
 	if err != nil {

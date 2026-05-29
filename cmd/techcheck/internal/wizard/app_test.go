@@ -133,3 +133,24 @@ func TestCheckForUpdate_NetworkErrorReturnsZeroStatus(t *testing.T) {
 	}
 }
 
+func TestCanSelfUpdateFalseInTestBinary(t *testing.T) {
+	// The test binary is not laid out as an installed .app/.exe, so
+	// self-update must report unavailable (frontend falls back to browser).
+	app := wizard.NewAppWithConfigAndLivePOPs(&config.Config{}, "", 0)
+	assert.False(t, app.CanSelfUpdate())
+}
+
+func TestApplyUpdateBlockedWhileRunning(t *testing.T) {
+	app := wizard.NewAppWithConfigAndLivePOPs(&config.Config{}, "", 0)
+	app.SetRunningForTest(true)
+	err := app.ApplyUpdate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tech check is running")
+}
+
+func TestApplyUpdateErrsWhenNotDownloaded(t *testing.T) {
+	app := wizard.NewAppWithConfigAndLivePOPs(&config.Config{}, "", 0)
+	err := app.ApplyUpdate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no update downloaded")
+}
