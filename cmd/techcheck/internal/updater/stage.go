@@ -2,6 +2,7 @@ package updater
 
 import (
 	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -23,14 +24,14 @@ const (
 func Stage(artifactPath, targetDir string) (string, error) {
 	if runtime.GOOS == "darwin" {
 		staged := filepath.Join(targetDir, stagedAppMac)
-		_ = os.RemoveAll(staged)
+		_ = os.RemoveAll(staged) // .app is a directory bundle
 		if err := extractDMGApp(artifactPath, staged); err != nil {
 			return "", err
 		}
 		return staged, nil
 	}
 	staged := filepath.Join(targetDir, stagedExeWin)
-	_ = os.Remove(staged)
+	_ = os.Remove(staged) // single .exe file
 	if err := extractZipExe(artifactPath, staged); err != nil {
 		return "", err
 	}
@@ -58,9 +59,11 @@ func extractZipExe(zipPath, dest string) error {
 		if err != nil {
 			return err
 		}
-		defer out.Close()
-		_, err = io.Copy(out, io.LimitReader(rc, hardCap))
-		return err
+		if _, err := io.Copy(out, io.LimitReader(rc, hardCap)); err != nil {
+			_ = out.Close()
+			return err
+		}
+		return out.Close() // capture flush error — a corrupt staged exe must not look OK
 	}
 	return fmt.Errorf("updater: %s.exe not found in zip", appName)
 }
@@ -74,7 +77,7 @@ func extractDMGApp(dmgPath, dest string) error {
 	}
 	attach := exec.Command("hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, dmgPath)
 	if out, err := attach.CombinedOutput(); err != nil {
-		return fmt.Errorf("updater: hdiutil attach: %v: %s", err, out)
+		return fmt.Errorf("updater: hdiutil attach: %w: %s", err, bytes.TrimSpace(out))
 	}
 	defer func() {
 		_ = exec.Command("hdiutil", "detach", mount, "-force").Run()
@@ -86,7 +89,7 @@ func extractDMGApp(dmgPath, dest string) error {
 		return fmt.Errorf("updater: %s.app not found in dmg: %w", appName, err)
 	}
 	if out, err := exec.Command("ditto", src, dest).CombinedOutput(); err != nil {
-		return fmt.Errorf("updater: ditto: %v: %s", err, out)
+		return fmt.Errorf("updater: ditto: %w: %s", err, bytes.TrimSpace(out))
 	}
 	return nil
 }

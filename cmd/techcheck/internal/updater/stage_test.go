@@ -41,7 +41,10 @@ func TestExtractZipExe_HappyPath(t *testing.T) {
 	if err := extractZipExe(zipPath, dest); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(dest)
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(got) != "MZ-fake-exe-bytes" {
 		t.Errorf("content = %q", got)
 	}
