@@ -39,6 +39,7 @@ type App struct {
 	running bool
 
 	updateMu     sync.Mutex
+	downloading  bool
 	updateReady  bool
 	updateStaged string
 	updateTarget string
@@ -139,16 +140,31 @@ func (a *App) DownloadUpdate() error {
 	if err != nil {
 		return err
 	}
+
+	a.updateMu.Lock()
+	if a.downloading {
+		a.updateMu.Unlock()
+		return fmt.Errorf("download already in progress")
+	}
+	a.downloading = true
+	a.updateMu.Unlock()
+
 	parent := a.ctx
 	if parent == nil {
 		parent = context.Background()
 	}
 	go func() {
+		defer func() {
+			a.updateMu.Lock()
+			a.downloading = false
+			a.updateMu.Unlock()
+		}()
 		tmp, err := os.MkdirTemp("", "techcheck-update")
 		if err != nil {
 			a.emit("update_error", map[string]any{"error": err.Error()})
 			return
 		}
+		defer os.RemoveAll(tmp)
 		artifact := filepath.Join(tmp, "artifact")
 		err = updater.Download(parent, s.DownloadURL, s.SHA256, s.SizeBytes, artifact, func(done, total int64) {
 			a.emit("update_progress", map[string]any{"done": done, "total": total})
