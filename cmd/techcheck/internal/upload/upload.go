@@ -23,6 +23,11 @@ type Options struct {
 type Response struct {
 	ID         string `json:"id"`
 	ReceivedAt string `json:"received_at"`
+	// ShareURL is a candidate-facing link to view this result (verdict, POPs,
+	// map) without IT involvement. Optional in the response — older servers
+	// omit it; treat an empty value as "no link to show". The URL is opaque;
+	// it is rendered as-is, never parsed or validated client-side.
+	ShareURL string `json:"share_url"`
 }
 
 // Upload POSTs the report with exponential backoff retries on transient

@@ -22,6 +22,7 @@ import (
 type response struct {
 	ID         string `json:"id"`
 	ReceivedAt string `json:"received_at"`
+	ShareURL   string `json:"share_url"`
 }
 
 func main() {
@@ -63,7 +64,12 @@ func main() {
 			_ = json.NewEncoder(w).Encode(existing)
 			return
 		}
-		rec := response{ID: uuid.NewString(), ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+		id := uuid.NewString()
+		rec := response{
+			ID:         id,
+			ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			ShareURL:   "http://" + *addr + "/r/" + id + "/",
+		}
 		byRunID[parsed.RunID] = rec
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)

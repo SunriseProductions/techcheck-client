@@ -267,6 +267,21 @@ summary {
   text-transform: uppercase;
 }
 
+.share-block {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--surface);
+  border-left: 2px solid var(--accent);
+}
+.share-actions {
+  display: flex;
+  gap: 12px;
+}
+.share-block .hint {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
 pre {
   background: var(--surface-2);
   padding: 12px;

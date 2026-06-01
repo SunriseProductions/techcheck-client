@@ -126,6 +126,7 @@ if (window.runtime && window.runtime.EventsOn) {
       state.uploadInfo = {
         report_id: state.completion.report_id,
         received_at: state.completion.received_at,
+        share_url: state.completion.share_url || '',
       };
       state.sendError = null;
     } else {

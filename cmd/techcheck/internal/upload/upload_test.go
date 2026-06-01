@@ -33,6 +33,40 @@ func TestUploadSuccess201(t *testing.T) {
 	assert.Equal(t, "abc", resp.ID)
 }
 
+func TestUploadDecodesShareURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"id":          "abc",
+			"received_at": "2026-06-01T10:00:00Z",
+			"share_url":   "https://telemetry.forge.sunrise.productions/r/opaque-token/",
+		})
+	}))
+	defer srv.Close()
+
+	r := report.New()
+	resp, err := upload.Upload(context.Background(), upload.Options{
+		URL: srv.URL, Token: "t", MaxRetries: 0,
+	}, r)
+	require.NoError(t, err)
+	assert.Equal(t, "https://telemetry.forge.sunrise.productions/r/opaque-token/", resp.ShareURL)
+}
+
+func TestUploadShareURLEmptyWhenAbsent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "abc", "received_at": "now"})
+	}))
+	defer srv.Close()
+
+	r := report.New()
+	resp, err := upload.Upload(context.Background(), upload.Options{
+		URL: srv.URL, Token: "t", MaxRetries: 0,
+	}, r)
+	require.NoError(t, err)
+	assert.Empty(t, resp.ShareURL)
+}
+
 func TestUploadIdempotent200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

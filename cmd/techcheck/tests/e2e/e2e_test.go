@@ -145,13 +145,15 @@ func TestFullPipelineAgainstMocks(t *testing.T) {
 	}, r)
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.ID)
+	assert.NotEmpty(t, resp.ShareURL, "server returns a candidate-facing share link")
 
-	// Idempotent retry: same run_id → same id.
+	// Idempotent retry: same run_id → same id and same share link.
 	resp2, err := upload.Upload(ctx, upload.Options{
 		URL: cfg.IngestURL, Token: cfg.UploadToken, MaxRetries: 1,
 	}, r)
 	require.NoError(t, err)
 	assert.Equal(t, resp.ID, resp2.ID, "server must dedupe on run_id")
+	assert.Equal(t, resp.ShareURL, resp2.ShareURL, "duplicate replay returns the same share link")
 
 	// Local report write worked on the happy path too.
 	localPath, err := report.WriteLocalToDir(r, t.TempDir())

@@ -1,4 +1,5 @@
 import { SendReport, LastUploadInfo } from '../../wailsjs/go/wizard/App.js';
+import { BrowserOpenURL, ClipboardSetText } from '../../wailsjs/runtime/runtime.js';
 
 export function renderResult(root, { navigate, state }) {
   const sendState = state.sendState || 'failed';
@@ -12,9 +13,23 @@ export function renderResult(root, { navigate, state }) {
 function renderSent(root, state, navigate) {
   const c = state.completion || {};
   const info = state.uploadInfo || {};
+  // The server returns a candidate-facing result link (24h token) alongside a
+  // successful submission. Render the View/Copy block only when it's present;
+  // older servers omit it, in which case the screen is unchanged.
+  const shareURL = info.share_url || '';
+  const shareBlock = shareURL ? `
+    <div class="share-block">
+      <div class="share-actions">
+        <button class="primary" id="share-view">View your result</button>
+        <button class="secondary" id="share-copy">Copy link</button>
+      </div>
+      <p class="hint">Link valid for 24 hours.</p>
+    </div>
+  ` : '';
   root.innerHTML = `
     <h1>Sent — thanks</h1>
     <p>IT will flag anything that needs attention. You can close this window.</p>
+    ${shareBlock}
     <details>
       <summary>Show details</summary>
       <pre id="detail"></pre>
@@ -28,6 +43,23 @@ function renderSent(root, state, navigate) {
     received_at: info.received_at,
     local_path:  c.local_path,
   }, null, 2);
+
+  if (shareURL) {
+    root.querySelector('#share-view').addEventListener('click', () => {
+      BrowserOpenURL(shareURL);
+    });
+    const copyBtn = root.querySelector('#share-copy');
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await ClipboardSetText(shareURL);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 2000);
+      } catch (e) {
+        console.warn('[share] clipboard write failed:', e);
+      }
+    });
+  }
+
   root.querySelector('#done').addEventListener('click', () => navigate('#/done'));
 }
 

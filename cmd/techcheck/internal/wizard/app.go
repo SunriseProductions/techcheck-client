@@ -329,15 +329,17 @@ func (a *App) SendReport() error {
 	return nil
 }
 
-// LastUploadInfo returns id/received_at from the most recent successful upload,
-// or zero values if nothing has been uploaded yet.
+// LastUploadInfo returns id/received_at/share_url from the most recent
+// successful upload, or zero values if nothing has been uploaded yet. share_url
+// is the candidate-facing result link (empty when the server didn't send one).
 func (a *App) LastUploadInfo() map[string]string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	out := map[string]string{"report_id": "", "received_at": ""}
+	out := map[string]string{"report_id": "", "received_at": "", "share_url": ""}
 	if a.lastUpload != nil {
 		out["report_id"] = a.lastUpload.ID
 		out["received_at"] = a.lastUpload.ReceivedAt
+		out["share_url"] = a.lastUpload.ShareURL
 	}
 	return out
 }
@@ -419,6 +421,7 @@ func (a *App) run(ctx context.Context, r *report.Report) {
 		completion["uploaded"] = true
 		completion["report_id"] = uploadResp.ID
 		completion["received_at"] = uploadResp.ReceivedAt
+		completion["share_url"] = uploadResp.ShareURL
 	} else {
 		completion["uploaded"] = false
 		completion["error"] = uploadErr.Error()
