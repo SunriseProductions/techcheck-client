@@ -7,13 +7,13 @@
   "frontend:dev:watcher": "",
   "frontend:dev:serverUrl": "",
   "author": {
-    "name": "Sunrise",
+    "name": "Tim Keller, Sunrise Animation Studios",
     "email": ""
   },
   "info": {
     "productName": "Sunrise Tech Check",
     "productVersion": "0.1.11",
-    "copyright": "Copyright 2026 Sunrise",
+    "copyright": "Copyright © 2026 Sunrise Animation Studios",
     "comments": "Network readiness diagnostic"
   }
 }
