@@ -66,8 +66,14 @@ func MeasureJitter(ctx context.Context, in JitterInput) (report.Jitter, int, err
 			<-loadDone // let the load finish before returning
 			return computeVariance(samples), dropped, nil
 		case <-ticker.C:
+			// Dial against the parent ctx (which has slack beyond the ping
+			// window), NOT pingCtx. The dial is bounded by the Dialer.Timeout
+			// above. If we used pingCtx here, the final tick — which fires at
+			// the same instant pingCtx's deadline elapses — would inherit a
+			// ~0ms budget and fail instantly, counting one phantom dropped
+			// packet every run (a constant, network-independent ~2% "loss").
 			start := time.Now()
-			conn, err := d.DialContext(pingCtx, "tcp", addr)
+			conn, err := d.DialContext(ctx, "tcp", addr)
 			if err != nil {
 				dropped++
 				continue
