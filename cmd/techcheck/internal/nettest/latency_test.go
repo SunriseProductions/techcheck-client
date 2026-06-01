@@ -22,7 +22,7 @@ func TestLatencyTCPFallbackAgainstLocalhost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	res, method, dropped, err := nettest.MeasureLatency(ctx, nettest.LatencyInput{
+	res, method, attempts, dropped, err := nettest.MeasureLatency(ctx, nettest.LatencyInput{
 		Host:        "127.0.0.1",
 		TCPPort:     port,
 		Samples:     5,
@@ -32,6 +32,7 @@ func TestLatencyTCPFallbackAgainstLocalhost(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, report.LatencyMethodTCP, method)
 	assert.Equal(t, report.LatencyMethodTCP, res.Method)
+	assert.Equal(t, 5, attempts)
 	assert.Equal(t, 0, dropped)
 	assert.Greater(t, res.MedianMS, 0.0)
 	assert.LessOrEqual(t, res.MinMS, res.MedianMS)
@@ -43,11 +44,12 @@ func TestLatencyTCPCountsDroppedSamples(t *testing.T) {
 	defer cancel()
 
 	// Port 1 is unbound on most systems; connect attempts fail fast.
-	_, _, dropped, err := nettest.MeasureLatency(ctx, nettest.LatencyInput{
+	_, _, attempts, dropped, err := nettest.MeasureLatency(ctx, nettest.LatencyInput{
 		Host: "127.0.0.1", TCPPort: 1, Samples: 3, ForceTCP: true,
 		PerSampleTO: 200 * time.Millisecond,
 	})
 	assert.Error(t, err) // all dropped → error returned
+	assert.Equal(t, 3, attempts)
 	assert.Equal(t, 3, dropped)
 }
 

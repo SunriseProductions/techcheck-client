@@ -22,10 +22,10 @@ type LatencyInput struct {
 
 // MeasureLatency runs round-trip samples against Host. It prefers ICMP echo;
 // on privilege or availability failure it falls back to TCP connect to
-// TCPPort. Returns the aggregated result, the method actually used, and the
-// number of dropped samples (out of in.Samples) so upstream can populate
-// POPResult.Loss.Pct.
-func MeasureLatency(ctx context.Context, in LatencyInput) (report.LatencyResult, string, int, error) {
+// TCPPort. Returns the aggregated result, the method actually used, the number
+// of samples actually attempted, and the number that were dropped, so upstream
+// can populate POPResult.Loss.Pct from real counts.
+func MeasureLatency(ctx context.Context, in LatencyInput) (report.LatencyResult, string, int, int, error) {
 	if in.Samples <= 0 {
 		in.Samples = 20
 	}
@@ -58,16 +58,16 @@ func MeasureLatency(ctx context.Context, in LatencyInput) (report.LatencyResult,
 	if method == report.LatencyMethodTCP {
 		s, d, err := tcpPings(ctx, in.Host, in.TCPPort, in.Samples, in.PerSampleTO)
 		if err != nil {
-			return report.LatencyResult{}, method, d, err
+			return report.LatencyResult{}, method, d, d, err
 		}
 		samples = s
 		dropped = d
 	}
 
 	if len(samples) == 0 {
-		return report.LatencyResult{}, method, dropped, fmt.Errorf("no samples collected")
+		return report.LatencyResult{}, method, dropped, dropped, fmt.Errorf("no samples collected")
 	}
-	return AggregateSamples(method, samples), method, dropped, nil
+	return AggregateSamples(method, samples), method, len(samples) + dropped, dropped, nil
 }
 
 func tcpPings(ctx context.Context, host string, port, n int, to time.Duration) ([]float64, int, error) {

@@ -20,10 +20,11 @@ type JitterInput struct {
 // MeasureJitter runs a background HTTP download while TCP-pinging Host:Port
 // at PingInterval for Duration. The variance of the ping RTTs is returned —
 // this is the "jitter under load" measurement from PRD §5.3 that catches
-// flaky home Wi-Fi that single-shot pings miss. Also returns the count of
-// pings that failed to dial during the window; the per-POP runner rolls this
-// up into the POPResult.Loss.Pct field.
-func MeasureJitter(ctx context.Context, in JitterInput) (report.Jitter, int, error) {
+// flaky home Wi-Fi that single-shot pings miss. It also returns the number of
+// pings actually attempted and the number that failed to dial; the per-POP
+// runner sums these across tests to compute POPResult.Loss.Pct from real
+// counts rather than a theoretical attempt estimate.
+func MeasureJitter(ctx context.Context, in JitterInput) (report.Jitter, int, int, error) {
 	if in.Duration <= 0 {
 		in.Duration = 30 * time.Second
 	}
@@ -64,7 +65,7 @@ func MeasureJitter(ctx context.Context, in JitterInput) (report.Jitter, int, err
 		select {
 		case <-pingCtx.Done():
 			<-loadDone // let the load finish before returning
-			return computeVariance(samples), dropped, nil
+			return computeVariance(samples), len(samples) + dropped, dropped, nil
 		case <-ticker.C:
 			// Dial against the parent ctx (which has slack beyond the ping
 			// window), NOT pingCtx. The dial is bounded by the Dialer.Timeout

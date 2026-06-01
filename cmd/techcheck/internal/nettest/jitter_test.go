@@ -29,7 +29,7 @@ func TestJitterUnderLoad(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	res, dropped, err := nettest.MeasureJitter(ctx, nettest.JitterInput{
+	res, attempts, dropped, err := nettest.MeasureJitter(ctx, nettest.JitterInput{
 		Host:         host,
 		TCPPort:      port,
 		DownloadURL:  srv.URL + "/preflight/download/10mb",
@@ -39,4 +39,6 @@ func TestJitterUnderLoad(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, res.VarianceMS, 0.0)
 	assert.GreaterOrEqual(t, dropped, 0)
+	assert.Greater(t, attempts, 0)
+	assert.GreaterOrEqual(t, attempts, dropped)
 }

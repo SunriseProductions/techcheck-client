@@ -59,14 +59,15 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 		timeout = 15 * time.Second
 	}
 
-	// Accumulate drop counts from latency + jitter to populate Loss.Pct.
+	// Accumulate attempt + drop counts from latency + jitter to populate
+	// Loss.Pct from the real number of pings made, not a theoretical estimate.
 	totalAttempts := 0
 	totalDropped := 0
 
 	// Latency (20 samples).
 	emit(progress, in.POP.ID, "latency", "start", "")
 	latCtx, cancel := context.WithTimeout(ctx, timeout)
-	lat, latMethod, latDropped, err := MeasureLatency(latCtx, LatencyInput{
+	lat, latMethod, latAttempts, latDropped, err := MeasureLatency(latCtx, LatencyInput{
 		Host: host, TCPPort: tcpPort, Samples: 20, ForceTCP: in.ForceTCP,
 	})
 	cancel()
@@ -81,7 +82,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 		emitSummary(progress, in.POP.ID, "latency", "done", "",
 			fmt.Sprintf("%.0f ms (%s)", lat.MedianMS, latMethod))
 	}
-	totalAttempts += 20
+	totalAttempts += latAttempts
 	totalDropped += latDropped
 
 	// Download throughput.
@@ -123,7 +124,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 		}
 	}
 	jctx, jcancel := context.WithTimeout(ctx, jitterDuration+5*time.Second)
-	jit, jDropped, err := MeasureJitter(jctx, JitterInput{
+	jit, jAttempts, jDropped, err := MeasureJitter(jctx, JitterInput{
 		Host: host, TCPPort: tcpPort,
 		DownloadURL:  baseURL + "/preflight/download/10mb",
 		Duration:     jitterDuration,
@@ -138,12 +139,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 		emitSummary(progress, in.POP.ID, "jitter", "done", "",
 			fmt.Sprintf("%.0f ms variance", jit.VarianceMS))
 	}
-	// Approximate: jitter was roughly `jitterDuration / PingInterval` attempts.
-	jitterAttempts := int(jitterDuration / (500 * time.Millisecond))
-	if jitterAttempts < 1 {
-		jitterAttempts = 1
-	}
-	totalAttempts += jitterAttempts
+	totalAttempts += jAttempts
 	totalDropped += jDropped
 
 	// Loss percentage — latency + jitter attempts combined.

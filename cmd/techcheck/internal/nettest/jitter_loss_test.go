@@ -24,7 +24,7 @@ func TestMeasureJitter_NoLossOnLosslessLink(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_, dropped, err := nettest.MeasureJitter(ctx, nettest.JitterInput{
+		_, attempts, dropped, err := nettest.MeasureJitter(ctx, nettest.JitterInput{
 			Host:         host,
 			TCPPort:      port,
 			DownloadURL:  "http://127.0.0.1:1/none", // refused fast; the load goroutine is irrelevant here
@@ -37,6 +37,9 @@ func TestMeasureJitter_NoLossOnLosslessLink(t *testing.T) {
 		}
 		if dropped != 0 {
 			t.Fatalf("run %d: dropped=%d on a lossless localhost link (phantom-drop regression)", i, dropped)
+		}
+		if attempts == 0 {
+			t.Fatalf("run %d: attempts=0; loss must be computed from real pings", i)
 		}
 	}
 }
