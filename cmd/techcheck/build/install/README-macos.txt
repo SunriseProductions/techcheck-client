@@ -1,19 +1,9 @@
 Sunrise Tech Check
 
-First-time launch on macOS
-
-This app isn't signed by Apple yet, so the first time you launch it
-macOS will block it with a message like "Sunrise Tech Check can't be
-opened because Apple cannot check it for malicious software."
-
-To allow it:
+Installing on macOS
 
 1. Drag Sunrise Tech Check to your Applications folder.
-2. Try to open it. macOS will block it.
-3. Open System Settings → Privacy & Security.
-4. Scroll to the bottom. You'll see a message about Sunrise Tech
-   Check being blocked.
-5. Click "Open Anyway."
-6. Confirm in the dialog.
+2. Open it from Applications or Launchpad.
 
-After this first time, the app will open normally.
+That's it. The app is signed with Sunrise's Apple Developer ID and
+notarised by Apple, so macOS opens it without any security warning.
