@@ -31,7 +31,7 @@ For verification or contributions, build from source. See below.
 
 ## Build from source
 
-Prerequisites: Go 1.22+, the Wails v2 CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`), and `create-dmg` (`brew install create-dmg`) for the macOS DMG package.
+Prerequisites: Go 1.25+, the Wails v2 CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0`), and `create-dmg` (`brew install create-dmg`) for the macOS DMG package.
 
 ```bash
 cd cmd/techcheck && wails dev     # live-reload dev window
