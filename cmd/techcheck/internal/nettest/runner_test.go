@@ -24,10 +24,11 @@ func TestRunPOPHappyPath(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/preflight/ping", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/preflight/download/10mb", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(loopbackDelay)
 		_, _ = w.Write(make([]byte, 1<<19))
 	})
 	mux.HandleFunc("/preflight/upload", func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(uploadDelay)
+		time.Sleep(loopbackDelay)
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/preflight/mtu", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(make([]byte, 1400)) })

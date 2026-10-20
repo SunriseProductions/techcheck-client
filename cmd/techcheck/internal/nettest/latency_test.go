@@ -2,6 +2,7 @@ package nettest_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -34,7 +35,12 @@ func TestLatencyTCPFallbackAgainstLocalhost(t *testing.T) {
 	assert.Equal(t, report.LatencyMethodTCP, res.Method)
 	assert.Equal(t, 5, attempts)
 	assert.Equal(t, 0, dropped)
-	assert.Greater(t, res.MedianMS, 0.0)
+	// A loopback connect can finish within one Windows clock tick and measure 0.
+	if runtime.GOOS == "windows" {
+		assert.GreaterOrEqual(t, res.MedianMS, 0.0)
+	} else {
+		assert.Greater(t, res.MedianMS, 0.0)
+	}
 	assert.LessOrEqual(t, res.MinMS, res.MedianMS)
 	assert.LessOrEqual(t, res.MedianMS, res.MaxMS)
 }
