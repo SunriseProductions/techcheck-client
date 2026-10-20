@@ -3,10 +3,12 @@ package updater
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestResolveTarget_DarwinWalksToApp(t *testing.T) {
+	skipOnWindows(t)
 	got, err := resolveTarget("darwin", "/Applications/SunriseTechCheck.app/Contents/MacOS/SunriseTechCheck")
 	if err != nil {
 		t.Fatal(err)
@@ -17,6 +19,7 @@ func TestResolveTarget_DarwinWalksToApp(t *testing.T) {
 }
 
 func TestResolveTarget_DarwinExeIsApp(t *testing.T) {
+	skipOnWindows(t)
 	got, err := resolveTarget("darwin", "/Applications/Foo.app")
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +30,7 @@ func TestResolveTarget_DarwinExeIsApp(t *testing.T) {
 }
 
 func TestResolveTarget_DarwinCaseInsensitive(t *testing.T) {
+	skipOnWindows(t)
 	got, err := resolveTarget("darwin", "/Applications/Foo.APP/Contents/MacOS/Foo")
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +41,7 @@ func TestResolveTarget_DarwinCaseInsensitive(t *testing.T) {
 }
 
 func TestResolveTarget_DarwinNotInBundle(t *testing.T) {
+	skipOnWindows(t)
 	_, err := resolveTarget("darwin", "/usr/local/bin/techcheck")
 	if err == nil {
 		t.Fatal("expected error for non-.app path")
@@ -108,5 +113,13 @@ func TestCleanupLeftovers_NoopWhenTargetAbsent(t *testing.T) {
 	CleanupLeftovers(target)
 	if _, err := os.Stat(old); err != nil {
 		t.Error(".old must be preserved when target is absent")
+	}
+}
+
+// skipOnWindows skips the darwin path tests: filepath uses backslashes there,
+// and the darwin branch never runs on Windows.
+func skipOnWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin bundle paths use forward slashes")
 	}
 }

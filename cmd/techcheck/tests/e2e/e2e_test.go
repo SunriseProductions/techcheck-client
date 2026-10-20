@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -48,6 +49,9 @@ func TestMain(m *testing.M) {
 		"mockingest": "./cmd/mockingest",
 	} {
 		bin := filepath.Join(tmp, name)
+		if runtime.GOOS == "windows" {
+			bin += ".exe"
+		}
 		c := exec.Command("go", "build", "-o", bin, pkg)
 		c.Dir = root
 		c.Stderr = os.Stderr
