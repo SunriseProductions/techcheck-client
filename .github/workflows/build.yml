@@ -96,7 +96,7 @@ jobs:
         run: |
           set -e
           mkdir -p artifact
-          version="${GITHUB_REF_NAME:-dev}"
+          version="${GITHUB_SHA::7}"
           src_candidates=(
             "build/bin/SunriseTechCheck${{ matrix.ext }}"
             "build/bin/SunriseTechCheck.app"
