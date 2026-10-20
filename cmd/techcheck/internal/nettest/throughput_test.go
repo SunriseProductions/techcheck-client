@@ -19,6 +19,7 @@ import (
 func TestDownloadThroughput(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		time.Sleep(loopbackDelay)
 		_, _ = w.Write(make([]byte, 1<<20)) // 1 MiB
 	}))
 	defer srv.Close()
@@ -31,14 +32,14 @@ func TestDownloadThroughput(t *testing.T) {
 	assert.Greater(t, mbps, 0.0)
 }
 
-// uploadDelay keeps loopback uploads longer than one Windows clock tick, so
-// MeasureUpload does not see zero elapsed time.
-const uploadDelay = 20 * time.Millisecond
+// loopbackDelay keeps loopback transfers longer than one Windows clock tick,
+// so the throughput measurement does not see zero elapsed time.
+const loopbackDelay = 20 * time.Millisecond
 
 func TestUploadThroughput(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n, _ := io.Copy(io.Discard, r.Body)
-		time.Sleep(uploadDelay)
+		time.Sleep(loopbackDelay)
 		fmt.Fprintf(w, "%d", n)
 	}))
 	defer srv.Close()
@@ -76,6 +77,7 @@ func TestDownloadThroughputRetriesOn503AndExcludesWaitTime(t *testing.T) {
 		}
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", payloadSize))
 		w.WriteHeader(http.StatusOK)
+		time.Sleep(loopbackDelay)
 		_, _ = w.Write(make([]byte, payloadSize))
 	}))
 	defer srv.Close()
@@ -126,7 +128,7 @@ func TestUploadThroughputRetriesOn503(t *testing.T) {
 			return
 		}
 		_, _ = io.Copy(io.Discard, r.Body)
-		time.Sleep(uploadDelay)
+		time.Sleep(loopbackDelay)
 	}))
 	defer srv.Close()
 
