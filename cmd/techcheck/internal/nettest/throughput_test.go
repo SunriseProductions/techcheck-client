@@ -31,9 +31,14 @@ func TestDownloadThroughput(t *testing.T) {
 	assert.Greater(t, mbps, 0.0)
 }
 
+// uploadDelay keeps loopback uploads longer than one Windows clock tick, so
+// MeasureUpload does not see zero elapsed time.
+const uploadDelay = 20 * time.Millisecond
+
 func TestUploadThroughput(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n, _ := io.Copy(io.Discard, r.Body)
+		time.Sleep(uploadDelay)
 		fmt.Fprintf(w, "%d", n)
 	}))
 	defer srv.Close()
@@ -121,6 +126,7 @@ func TestUploadThroughputRetriesOn503(t *testing.T) {
 			return
 		}
 		_, _ = io.Copy(io.Discard, r.Body)
+		time.Sleep(uploadDelay)
 	}))
 	defer srv.Close()
 
