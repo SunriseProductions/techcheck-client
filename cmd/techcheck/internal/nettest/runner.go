@@ -137,7 +137,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 	} else {
 		res.Jitter = jit
 		emitSummary(progress, in.POP.ID, "jitter", "done", "",
-			fmt.Sprintf("%.0f ms variance", jit.VarianceMS))
+			JitterSummary(jit))
 	}
 	totalAttempts += jAttempts
 	totalDropped += jDropped

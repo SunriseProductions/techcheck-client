@@ -3,6 +3,7 @@ package nettest
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"time"
 
@@ -102,4 +103,11 @@ func computeVariance(samples []float64) report.Jitter {
 		sq += (v - mean) * (v - mean)
 	}
 	return report.Jitter{VarianceMS: sq / float64(len(samples))}
+}
+
+// JitterSummary formats jitter for the progress view as the standard
+// deviation of the ping RTTs in ms (the square root of VarianceMS, which is
+// in ms²).
+func JitterSummary(j report.Jitter) string {
+	return fmt.Sprintf("%.0f ms", math.Sqrt(j.VarianceMS))
 }

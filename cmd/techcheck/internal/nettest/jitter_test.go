@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sunriseproductions/techcheck-client/cmd/techcheck/internal/nettest"
+	"github.com/sunriseproductions/techcheck-client/cmd/techcheck/internal/report"
 )
 
 func TestJitterUnderLoad(t *testing.T) {
@@ -41,4 +42,10 @@ func TestJitterUnderLoad(t *testing.T) {
 	assert.GreaterOrEqual(t, dropped, 0)
 	assert.Greater(t, attempts, 0)
 	assert.GreaterOrEqual(t, attempts, dropped)
+}
+
+func TestJitterSummaryShowsStddevInMS(t *testing.T) {
+	// variance_ms is in ms²; the summary shows its square root.
+	assert.Equal(t, "20 ms", nettest.JitterSummary(report.Jitter{VarianceMS: 400}))
+	assert.Equal(t, "0 ms", nettest.JitterSummary(report.Jitter{VarianceMS: 0}))
 }
