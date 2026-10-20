@@ -30,7 +30,7 @@ export function renderUpdateBanner(status, opts = {}) {
   if (status.UpdateAvailable) {
     return renderBar({
       level: 'info',
-      message: `Version ${status.Latest} available.`,
+      message: `Version ${status.Latest} is available.`,
       status,
       opts,
       includeReleaseNotes: true,
@@ -46,6 +46,7 @@ function renderBar({ level, message, status, opts, includeReleaseNotes }) {
   bar.setAttribute('role', 'status');
 
   const text = document.createElement('span');
+  text.className = 'update-banner-message';
   text.textContent = message;
   bar.appendChild(text);
 
@@ -63,7 +64,7 @@ function renderBar({ level, message, status, opts, includeReleaseNotes }) {
     actions.appendChild(notes);
   }
 
-  actions.appendChild(buildUpdateControl(status, opts));
+  actions.appendChild(buildUpdateControl(status, opts, { bar, message: text }));
 
   bar.appendChild(actions);
   return bar;
@@ -111,9 +112,22 @@ function renderModal(status, opts = {}) {
   return modal;
 }
 
+const BUTTON_LABELS = {
+  idle: 'Download update',
+  downloading: 'Downloading…',
+  ready: 'Restart to update',
+  installing: 'Restarting…',
+  error: 'Try again',
+};
+
 // buildUpdateControl returns the browser-download button when self-update is
-// unavailable, otherwise the in-app Install Update control with progress.
-function buildUpdateControl(status, opts) {
+// unavailable, otherwise the in-app download → restart control.
+//
+// In the bar, `ui.bar` and `ui.message` are passed in: each phase rewrites the
+// bar's own message, sets data-phase (which drives the colour), and fills a
+// progress track along the bar's bottom edge. In the modal there is no bar, so
+// the message sits next to the button instead.
+function buildUpdateControl(status, opts, ui = {}) {
   const canSelf = !!opts.canSelfUpdate;
   if (!canSelf) {
     const dl = document.createElement('button');
@@ -133,39 +147,58 @@ function buildUpdateControl(status, opts) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'update-banner-download';
-  btn.textContent = 'Install Update';
+  wrap.appendChild(btn);
 
-  const progress = document.createElement('span');
-  progress.className = 'update-banner-progress';
+  let message = ui.message;
+  if (!message) {
+    message = document.createElement('span');
+    message.className = 'update-banner-progress';
+    wrap.prepend(message);
+  }
 
-  let phase = 'idle'; // idle → downloading → ready → installing
+  let fill = null;
+  if (ui.bar) {
+    const track = document.createElement('div');
+    track.className = 'update-banner-track';
+    fill = document.createElement('div');
+    fill.className = 'update-banner-fill';
+    track.appendChild(fill);
+    ui.bar.appendChild(track);
+  }
 
+  const version = status.Latest;
   const fns = opts.updateFns || {};
 
+  // phase drives what a click does: idle → downloading → ready → installing.
+  // A failed download lands in 'error' (click retries the download); a failed
+  // restart goes back to 'ready' but shows the error styling.
+  let phase = 'idle';
+  const setPhase = (next, text, { look = next, pct = 0 } = {}) => {
+    phase = next;
+    if (ui.bar) ui.bar.dataset.phase = look;
+    btn.disabled = next === 'downloading' || next === 'installing';
+    btn.textContent = look === 'error' ? BUTTON_LABELS.error : BUTTON_LABELS[next];
+    message.textContent = text;
+    if (fill) fill.style.width = `${pct}%`;
+  };
+  setPhase('idle', message.textContent);
+
   btn.addEventListener('click', async () => {
-    if (phase === 'idle') {
-      phase = 'downloading';
-      btn.disabled = true;
-      progress.textContent = 'Downloading… 0%';
+    if (phase === 'idle' || phase === 'error') {
+      setPhase('downloading', `Downloading ${version}…`);
       try {
         await fns.download();
       } catch (err) {
-        phase = 'idle';
-        btn.disabled = false;
-        progress.textContent = `Error: ${err?.message ?? err}`;
+        fns.onError(err?.message ?? err);
       }
       return;
     }
     if (phase === 'ready') {
-      phase = 'installing';
-      btn.disabled = true;
-      progress.textContent = 'Quitting to install…';
+      setPhase('installing', `Restarting to install ${version}…`);
       try {
         await fns.apply();
       } catch (err) {
-        phase = 'ready';
-        btn.disabled = false;
-        progress.textContent = `Error: ${err?.message ?? err}`;
+        setPhase('ready', `Couldn’t restart: ${err?.message ?? err}`, { look: 'error' });
       }
     }
   });
@@ -173,24 +206,18 @@ function buildUpdateControl(status, opts) {
   // Event hooks driven by main.js.
   fns.onProgress = (done, total) => {
     if (phase !== 'downloading') return;
-    const pct = total > 0 ? Math.floor((done / total) * 100) : 0;
-    progress.textContent = `Downloading… ${pct}%`;
+    if (total > 0) {
+      const pct = Math.floor((done / total) * 100);
+      setPhase('downloading', `Downloading ${version}… ${pct}%`, { pct });
+    }
   };
   fns.onReady = () => {
-    phase = 'ready';
-    btn.disabled = false;
-    btn.textContent = 'Update now';
-    progress.textContent = 'Verified — ready to install.';
+    setPhase('ready', `✓ ${version} is ready. The app will restart to install it.`);
   };
   fns.onError = (msg) => {
-    phase = 'idle';
-    btn.disabled = false;
-    btn.textContent = 'Install Update';
-    progress.textContent = `Error: ${msg}`;
+    setPhase('error', `Download failed: ${msg}`);
   };
   opts.updateFns = fns;
 
-  wrap.appendChild(btn);
-  wrap.appendChild(progress);
   return wrap;
 }

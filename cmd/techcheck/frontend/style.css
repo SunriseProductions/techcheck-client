@@ -306,11 +306,17 @@ code {
    "your version is no longer supported". Uses the app's theme tokens so
    it sits inside the dark chrome instead of flashing a white rectangle. */
 .update-banner {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.update-banner-message {
+  min-width: 0;
 }
 .update-banner-info {
   background: rgba(232, 93, 4, 0.12);
@@ -322,10 +328,55 @@ code {
   color: var(--text);
   border-bottom: 1px solid rgba(239, 68, 68, 0.4);
 }
+/* Phase colours for the in-app updater: green once the download is verified
+   and only a restart is left, red when a download or restart failed. */
+.update-banner[data-phase="ready"] {
+  background: rgba(74, 222, 128, 0.12);
+  border-bottom-color: rgba(74, 222, 128, 0.4);
+}
+.update-banner[data-phase="error"] {
+  background: rgba(239, 68, 68, 0.12);
+  border-bottom-color: rgba(239, 68, 68, 0.4);
+}
 .update-banner-actions {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  flex-shrink: 0;
+  gap: 1rem;
+}
+.update-banner-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+/* Download progress — a thin bar along the banner's bottom edge. */
+.update-banner-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+}
+.update-banner:not([data-phase="downloading"]) .update-banner-track {
+  display: none;
+}
+.update-banner-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent-hi);
+  transition: width 0.2s ease;
+}
+/* The global button style is uppercase + tracked; banner controls read as
+   sentence-case UI instead. */
+.update-banner button,
+.update-banner-modal-footer button {
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* Fixed width so the label swap between phases doesn't shift the row. */
+.update-banner-install .update-banner-download {
+  min-width: 10rem;
+  text-align: center;
 }
 .update-banner-link {
   background: transparent;
@@ -347,7 +398,10 @@ code {
   font: inherit;
   font-weight: 500;
 }
-.update-banner-download:hover { background: var(--accent-hi); }
+.update-banner-download:hover:not(:disabled) { background: var(--accent-hi); }
+.update-banner-download:disabled { opacity: 0.6; }
+.update-banner[data-phase="ready"] .update-banner-download { background: var(--success); }
+.update-banner[data-phase="ready"] .update-banner-download:hover { background: #86efac; }
 
 /* Mandatory-update modal — blocks the wizard until the user downloads.
    Layout is header / scrollable body / footer, so long release notes
