@@ -158,10 +158,10 @@ type Security struct {
 }
 
 type Network struct {
-	PublicIP    string        `json:"public_ip"`
-	DetectedGeo string        `json:"detected_geo"`
-	ClientGeo   ClientGeo     `json:"client_geo"`
-	POPs        []POPResult   `json:"pops"`
+	PublicIP    string      `json:"public_ip"`
+	DetectedGeo string      `json:"detected_geo"`
+	ClientGeo   ClientGeo   `json:"client_geo"`
+	POPs        []POPResult `json:"pops"`
 }
 
 // ClientGeo is the client-side geolocation based on the user's public IP,
@@ -230,12 +230,12 @@ type Error struct {
 // null slices.
 func New() *Report {
 	return &Report{
-		Schema:      Schema,
-		ToolVersion: ToolVersion,
-		AppID:       AppID,
-		RunID:       uuid.NewString(),
-		RunStartedAt:  time.Now().UTC(),
-		Errors:        []Error{},
+		Schema:       Schema,
+		ToolVersion:  ToolVersion,
+		AppID:        AppID,
+		RunID:        uuid.NewString(),
+		RunStartedAt: time.Now().UTC(),
+		Errors:       []Error{},
 		Machine: Machine{
 			GPUs:            []GPU{},
 			Displays:        []Display{},
