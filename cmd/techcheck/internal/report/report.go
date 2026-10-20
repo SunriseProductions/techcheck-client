@@ -8,7 +8,7 @@ import (
 
 const (
 	Schema      = "techcheck.v1"
-	ToolVersion = "0.1.13"
+	ToolVersion = "0.1.14"
 	AppID       = "sunrise-techcheck"
 )
 
