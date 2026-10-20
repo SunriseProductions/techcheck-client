@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
@@ -134,8 +135,13 @@ func TestCheckForUpdate_NetworkErrorReturnsZeroStatus(t *testing.T) {
 }
 
 func TestCanSelfUpdateFalseInTestBinary(t *testing.T) {
-	// The test binary is not laid out as an installed .app/.exe, so
-	// self-update must report unavailable (frontend falls back to browser).
+	// On macOS self-update needs an installed .app bundle; the test binary
+	// isn't in one, so it must report unavailable (frontend falls back to
+	// browser). On Windows/Linux the install target is the executable itself
+	// and the test binary's temp dir is writable, so true is correct there.
+	if runtime.GOOS != "darwin" {
+		t.Skip("the .app bundle check only applies on darwin")
+	}
 	app := wizard.NewAppWithConfigAndLivePOPs(&config.Config{}, "", 0)
 	assert.False(t, app.CanSelfUpdate())
 }
