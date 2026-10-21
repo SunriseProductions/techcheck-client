@@ -78,7 +78,41 @@ func TestStreamBusyGivesUpAfterRetries(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, nettest.ErrStreamUnsupported)
 	assert.Contains(t, err.Error(), "busy")
-	assert.Equal(t, int32(4), srv.hellos.Load())
+	assert.Equal(t, int32(4), srv.starts.Load())
+}
+
+func TestStreamBusyAfterStartRetriesThenSucceeds(t *testing.T) {
+	srv := streamServer(t, streamBusyOnce)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	step, anyData, err := nettest.MeasureUDPStream(ctx, streamInput(srv))
+	require.NoError(t, err)
+	assert.True(t, anyData)
+	assert.Equal(t, 60, step.Sent)
+	assert.Equal(t, int32(2), srv.starts.Load())
+}
+
+func TestStreamResendsLostHello(t *testing.T) {
+	srv := streamServer(t, streamDropFirstHello)
+	in := streamInput(srv)
+	in.Timeout = 600 * time.Millisecond
+
+	step, anyData, err := nettest.MeasureUDPStream(context.Background(), in)
+	require.NoError(t, err)
+	assert.True(t, anyData)
+	assert.Greater(t, step.Received, 0)
+	assert.Equal(t, int32(2), srv.hellos.Load())
+}
+
+func TestStreamErrorsWhenNothingFollowsStart(t *testing.T) {
+	srv := streamServer(t, streamSilentAfterStart)
+
+	_, _, err := nettest.MeasureUDPStream(context.Background(), streamInput(srv))
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, nettest.ErrStreamUnsupported)
+	// One retry with a fresh handshake, then give up.
+	assert.Equal(t, int32(2), srv.starts.Load())
 }
 
 func TestLadderStopsAtFirstLossyStep(t *testing.T) {
@@ -107,8 +141,19 @@ func TestLadderLargePacketsDropped(t *testing.T) {
 	assert.Equal(t, report.LargePacketsDropped, ladder.LargePackets)
 	assert.Equal(t, 0.0, ladder.MaxCleanMbps)
 	require.Len(t, ladder.Steps, 1)
+	assert.Equal(t, 150, ladder.Steps[0].Sent) // from E: 500 packets/s for 300 ms
 	assert.Equal(t, 0, ladder.Steps[0].Received)
 	assert.Equal(t, 100.0, ladder.Steps[0].LossPct)
+}
+
+func TestLadderReturnsErrorWhenStepDoesNotRun(t *testing.T) {
+	srv := streamServer(t, streamSilentAfterStart)
+
+	ladder, err := nettest.RunLadder(context.Background(), streamInput(srv),
+		[]float64{5, 10}, 300*time.Millisecond, 0.1)
+	require.Error(t, err)
+	assert.Empty(t, ladder.Steps)
+	assert.Empty(t, ladder.LargePackets)
 }
 
 func TestLadderReturnsUnsupportedError(t *testing.T) {

@@ -20,6 +20,10 @@ import (
 // cookie came back within the timeout.
 var ErrStreamUnsupported = errors.New("stream not supported")
 
+// errNoStream means neither data nor an end packet arrived after S, so the
+// stream most likely never ran (a lost S). It is not a measurement.
+var errNoStream = errors.New("no data or end packet after start")
+
 type StreamInput struct {
 	Host        string
 	Port        int
@@ -40,13 +44,18 @@ const (
 )
 
 // MeasureUDPStream asks the beacon to stream sequenced packets at RateMbps
-// for Duration and summarises what arrived. anyData is false when the
-// handshake worked but no data packet arrived.
+// for Duration and summarises what arrived. anyData is false when the end
+// packet arrived but no data packet did.
 //
-// The handshake is H (hello) → C (cookie) → S (start). S goes out exactly
+// The handshake is H (hello) → C (cookie) → S (start). H is resent until C
+// arrives, since the beacon answers it without state. S goes out exactly
 // once: the beacon starts a new stream for every valid S, so a resend would
-// double the stream. A B (busy) reply is retried up to bwMaxAttempts times,
-// waiting the beacon's retry_after between attempts.
+// double the stream.
+//
+// A B (busy) reply to S is retried up to bwMaxAttempts times with a fresh
+// handshake, waiting the beacon's retry_after between attempts. If nothing at
+// all follows S, the attempt runs once more with a fresh handshake; by then
+// any stream from the first S has ended. A second silence is an error.
 func MeasureUDPStream(ctx context.Context, in StreamInput) (report.StreamStep, bool, error) {
 	if in.Timeout <= 0 {
 		in.Timeout = 3 * time.Second
@@ -56,7 +65,7 @@ func MeasureUDPStream(ctx context.Context, in StreamInput) (report.StreamStep, b
 	}
 	var lastErr error
 	for attempt := 0; attempt < bwMaxAttempts; attempt++ {
-		step, anyData, err := measureStreamOnce(ctx, in)
+		step, anyData, err := measureStreamRetryingSilence(ctx, in)
 		if err == nil {
 			return step, anyData, nil
 		}
@@ -73,6 +82,20 @@ func MeasureUDPStream(ctx context.Context, in StreamInput) (report.StreamStep, b
 		}
 	}
 	return report.StreamStep{}, false, fmt.Errorf("stream still busy after %d attempts: %w", bwMaxAttempts, lastErr)
+}
+
+// measureStreamRetryingSilence runs one stream, and runs it once more when
+// neither data nor an end packet arrived after S.
+func measureStreamRetryingSilence(ctx context.Context, in StreamInput) (report.StreamStep, bool, error) {
+	step, anyData, err := measureStreamOnce(ctx, in)
+	if !errors.Is(err, errNoStream) {
+		return step, anyData, err
+	}
+	step, anyData, err = measureStreamOnce(ctx, in)
+	if errors.Is(err, errNoStream) {
+		return report.StreamStep{}, false, fmt.Errorf("stream did not run after 2 tries: %w", err)
+	}
+	return step, anyData, err
 }
 
 func measureStreamOnce(ctx context.Context, in StreamInput) (report.StreamStep, bool, error) {
@@ -103,10 +126,7 @@ func measureStreamOnce(ctx context.Context, in StreamInput) (report.StreamStep, 
 	magic := []byte(in.Magic)
 	body := streamHelloBody(nonce, in)
 
-	if _, err := conn.Write(streamPacket(magic, 'H', body)); err != nil {
-		return report.StreamStep{}, false, err
-	}
-	cookie, err := awaitStreamCookie(ctx, conn, magic, nonce, in.Timeout)
+	cookie, err := streamHandshake(ctx, conn, magic, body, in.Timeout)
 	if err != nil {
 		return report.StreamStep{}, false, err
 	}
@@ -115,9 +135,12 @@ func measureStreamOnce(ctx context.Context, in StreamInput) (report.StreamStep, 
 	if _, err := conn.Write(streamPacket(magic, 'S', start)); err != nil {
 		return report.StreamStep{}, false, err
 	}
-	pkts, totalSent, err := receiveStream(ctx, conn, magic, nonce, time.Now().Add(in.Duration+streamEndGrace))
+	pkts, totalSent, gotEnd, err := receiveStream(ctx, conn, magic, nonce, time.Now().Add(in.Duration+streamEndGrace))
 	if err != nil {
 		return report.StreamStep{}, false, err
+	}
+	if !gotEnd && len(pkts) == 0 {
+		return report.StreamStep{}, false, errNoStream
 	}
 	return StreamStats(in.RateMbps, totalSent, pkts), len(pkts) > 0, nil
 }
@@ -150,22 +173,55 @@ func parseStreamPacket(p, magic []byte) (typ byte, body []byte, ok bool) {
 	return p[len(magic)], p[len(magic)+1:], true
 }
 
-// awaitStreamCookie reads the reply to a hello. A C with our nonce returns
-// the cookie; a B returns a busyError; an echoed H, or nothing within
-// timeout, returns ErrStreamUnsupported.
-func awaitStreamCookie(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, timeout time.Duration) ([]byte, error) {
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		return nil, err
-	}
+// streamHandshake sends the hello and returns the cookie from the C reply.
+// The same hello goes out again every timeout/3 until a C with our nonce
+// arrives, so one lost H or C does not fail the test. A B returns a
+// busyError; an echoed H, or no C within timeout, returns
+// ErrStreamUnsupported.
+func streamHandshake(ctx context.Context, conn *net.UDPConn, magic, body []byte, timeout time.Duration) ([]byte, error) {
+	hello := streamPacket(magic, 'H', body)
+	nonce := body[1 : 1+streamNonceLen]
+	deadline := time.Now().Add(timeout)
+	resendEvery := timeout / 3
 	buf := make([]byte, 2048)
 	for {
-		n, err := conn.Read(buf)
-		if err != nil {
+		if _, err := conn.Write(hello); err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			return nil, err
+		}
+		readUntil := time.Now().Add(resendEvery)
+		if readUntil.After(deadline) {
+			readUntil = deadline
+		}
+		if err := conn.SetReadDeadline(readUntil); err != nil {
+			return nil, err
+		}
+		cookie, err := readStreamCookie(conn, buf, magic, nonce)
+		if err == nil {
+			return cookie, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			return nil, err
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("no stream cookie within %s: %w", timeout, ErrStreamUnsupported)
+		}
+	}
+}
+
+// readStreamCookie reads replies until a C with our nonce, a B, an echoed H
+// or a read error (including the read deadline).
+func readStreamCookie(conn *net.UDPConn, buf, magic, nonce []byte) ([]byte, error) {
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
-				return nil, fmt.Errorf("no stream cookie within %s: %w", timeout, ErrStreamUnsupported)
+				return nil, err
 			}
 			// On a connected socket this is an ICMP error, such as port
 			// unreachable: nothing there speaks the stream protocol.
@@ -184,22 +240,28 @@ func awaitStreamCookie(ctx context.Context, conn *net.UDPConn, magic, nonce []by
 			}
 		case 'B':
 			if len(body) >= streamNonceLen+2 && bytes.Equal(body[:streamNonceLen], nonce) {
-				retryAfter := time.Duration(binary.BigEndian.Uint16(body[streamNonceLen:])) * time.Second
-				if retryAfter <= 0 {
-					retryAfter = streamBusyFallback
-				}
-				return nil, &busyError{retryAfter: retryAfter}
+				return nil, streamBusy(body[streamNonceLen:])
 			}
 		}
 	}
 }
 
+// streamBusy builds the busyError for a B body after the nonce.
+func streamBusy(rest []byte) error {
+	retryAfter := time.Duration(binary.BigEndian.Uint16(rest)) * time.Second
+	if retryAfter <= 0 {
+		retryAfter = streamBusyFallback
+	}
+	return &busyError{retryAfter: retryAfter}
+}
+
 // receiveStream collects D packets until an E arrives or the deadline
-// passes. It returns the total_sent from E, or 0 when no E arrived. Packets
-// of other types or with another nonce are ignored.
-func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, deadline time.Time) ([]StreamPacket, int, error) {
+// passes. It returns the total_sent from E and whether E arrived. A B means
+// the beacon had no free slot and started no stream. Packets of other types
+// or with another nonce are ignored.
+func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, deadline time.Time) ([]StreamPacket, int, bool, error) {
 	if err := conn.SetReadDeadline(deadline); err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
 	buf := make([]byte, 64<<10)
 	var pkts []StreamPacket
@@ -208,12 +270,12 @@ func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, 
 		recvNS := time.Now().UnixNano()
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, 0, ctx.Err()
+				return nil, 0, false, ctx.Err()
 			}
 			if errors.Is(err, os.ErrDeadlineExceeded) {
-				return pkts, 0, nil
+				return pkts, 0, false, nil
 			}
-			return nil, 0, err
+			return nil, 0, false, err
 		}
 		typ, body, ok := parseStreamPacket(buf[:n], magic)
 		if !ok || len(body) < streamNonceLen || !bytes.Equal(body[:streamNonceLen], nonce) {
@@ -234,7 +296,12 @@ func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, 
 			if len(rest) < 4 {
 				continue
 			}
-			return pkts, int(binary.BigEndian.Uint32(rest[0:4])), nil
+			return pkts, int(binary.BigEndian.Uint32(rest[0:4])), true, nil
+		case 'B':
+			if len(rest) < 2 {
+				continue
+			}
+			return nil, 0, false, streamBusy(rest)
 		}
 	}
 }
@@ -245,8 +312,8 @@ func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, 
 // none). LargePackets comes from the first step: dropped when its handshake
 // worked but no data packet arrived.
 //
-// An error from a step (unsupported beacon, still busy) ends the ladder; the
-// steps completed so far come back with it.
+// An error from a step (unsupported beacon, still busy, stream did not run)
+// ends the ladder; the steps completed so far come back with it.
 func RunLadder(ctx context.Context, in StreamInput, ladderMbps []float64, step time.Duration, lossLimitPct float64) (report.StreamLadder, error) {
 	ladder := report.StreamLadder{Port: in.Port, Steps: []report.StreamStep{}}
 	for i, rate := range ladderMbps {

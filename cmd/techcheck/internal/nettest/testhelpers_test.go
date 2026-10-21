@@ -56,8 +56,17 @@ const (
 	// streamEchoOnly echoes every PFLT packet back, like beacons from before
 	// the stream test.
 	streamEchoOnly streamMode = "echoOnly"
-	// streamBusy answers every H with B and a 1 s retry_after.
+	// streamBusy answers H with C and every S with B and a 1 s retry_after,
+	// as a beacon does when its bandwidth slots are full.
 	streamBusy streamMode = "busy"
+	// streamBusyOnce answers the first S with B, then streams normally.
+	streamBusyOnce streamMode = "busyOnce"
+	// streamDropFirstHello ignores the first H, as if the line lost it, then
+	// behaves like streamNormal.
+	streamDropFirstHello streamMode = "dropFirstHello"
+	// streamSilentAfterStart completes the handshake and then sends nothing,
+	// as when the S is lost on the way.
+	streamSilentAfterStart streamMode = "silentAfterStart"
 	// streamNoData completes the handshake and sends E, but no D packets, as
 	// when large datagrams are dropped on the path.
 	streamNoData streamMode = "noData"
@@ -70,7 +79,8 @@ const (
 type testStreamServer struct {
 	host   string
 	port   int
-	hellos atomic.Int32
+	hellos atomic.Int32 // every H received
+	starts atomic.Int32 // every S with a valid cookie
 }
 
 // streamServer starts a beacon on 127.0.0.1 in the given mode. It closes
@@ -109,14 +119,10 @@ func streamServer(t *testing.T, mode streamMode) *testStreamServer {
 				if len(body) < helloBodyLen {
 					continue
 				}
-				srv.hellos.Add(1)
-				nonce := body[1:9]
-				if mode == streamBusy {
-					reply := append([]byte("PFLTB"), nonce...)
-					reply = binary.BigEndian.AppendUint16(reply, 1)
-					_, _ = pc.WriteTo(reply, addr)
+				if srv.hellos.Add(1) == 1 && mode == streamDropFirstHello {
 					continue
 				}
+				nonce := body[1:9]
 				reply := append([]byte("PFLTC"), nonce...)
 				reply = append(reply, cookie...)
 				_, _ = pc.WriteTo(reply, addr)
@@ -124,7 +130,17 @@ func streamServer(t *testing.T, mode streamMode) *testStreamServer {
 				if len(body) < helloBodyLen+16 || !bytes.Equal(body[helloBodyLen:helloBodyLen+16], cookie) {
 					continue
 				}
+				starts := srv.starts.Add(1)
 				nonce := append([]byte(nil), body[1:9]...)
+				if mode == streamBusy || (mode == streamBusyOnce && starts == 1) {
+					reply := append([]byte("PFLTB"), nonce...)
+					reply = binary.BigEndian.AppendUint16(reply, 1)
+					_, _ = pc.WriteTo(reply, addr)
+					continue
+				}
+				if mode == streamSilentAfterStart {
+					continue
+				}
 				rateKbps := binary.BigEndian.Uint32(body[9:13])
 				packetBytes := int(binary.BigEndian.Uint16(body[13:15]))
 				duration := time.Duration(binary.BigEndian.Uint32(body[15:19])) * time.Millisecond
