@@ -157,3 +157,59 @@ func TestLoadWithEmptyLDFlagsLeavesSecretsEmpty(t *testing.T) {
 	assert.Equal(t, 15, cfg.PerTestTimeoutSeconds)
 	assert.Equal(t, "PFLT", cfg.UDPProbeMagic)
 }
+
+func TestDefaultRunSettings(t *testing.T) {
+	assert.Equal(t, config.RunSettings{
+		FullTestMaxLatencyMS: 100,
+		FullTestMaxPOPs:      3,
+		TLSExpectedRoots:     []string{"ISRG Root X1", "ISRG Root X2"},
+		DCVTCPPort:           8443,
+		DCVUDPPort:           8443,
+		UDPStream: config.UDPStreamSettings{
+			PacketBytes:     1250,
+			LadderMbps:      []float64{5, 10, 20, 35},
+			StepSeconds:     3,
+			LossLimitPct:    0.1,
+			TeradiciMbps:    5,
+			TeradiciSeconds: 5,
+		},
+	}, config.DefaultRunSettings())
+}
+
+func TestDefaultRunSettingsReturnsFreshSlices(t *testing.T) {
+	a := config.DefaultRunSettings()
+	a.TLSExpectedRoots[0] = "mutated"
+	a.UDPStream.LadderMbps[0] = 999
+	b := config.DefaultRunSettings()
+	assert.Equal(t, "ISRG Root X1", b.TLSExpectedRoots[0])
+	assert.Equal(t, 5.0, b.UDPStream.LadderMbps[0])
+}
+
+func TestRunSettingsWithDefaultsFillsZeros(t *testing.T) {
+	got := config.RunSettings{
+		FullTestMaxPOPs: 7,
+		DCVUDPPort:      9000,
+		UDPStream:       config.UDPStreamSettings{StepSeconds: 1.5},
+	}.WithDefaults()
+
+	want := config.DefaultRunSettings()
+	want.FullTestMaxPOPs = 7
+	want.DCVUDPPort = 9000
+	want.UDPStream.StepSeconds = 1.5
+	assert.Equal(t, want, got)
+}
+
+func TestLoadSetsDefaultRunSettings(t *testing.T) {
+	cfg, err := config.Load("")
+	require.NoError(t, err)
+	assert.Equal(t, config.DefaultRunSettings(), cfg.Run)
+}
+
+func TestSidecarPartialRunKeepsOtherDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sidecar.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"run":{"full_test_max_pops":9}}`), 0o600))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 9, cfg.Run.FullTestMaxPOPs)
+	assert.Equal(t, 8443, cfg.Run.DCVTCPPort)
+}
