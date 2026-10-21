@@ -1,6 +1,6 @@
 // mockprobe runs a local stand-in for a Sunrise nginx POP. It serves the
-// documented /preflight/* HTTP endpoints and echoes UDP packets on the given
-// port that start with the magic prefix. Use for end-to-end testing.
+// documented /preflight/* HTTP endpoints, and on two UDP ports it echoes
+// packets that start with the magic prefix and answers the UDP stream protocol. Use for end-to-end testing.
 package main
 
 import (
@@ -19,6 +19,7 @@ import (
 func main() {
 	httpAddr := flag.String("http", "127.0.0.1:18080", "HTTP listen address")
 	udpAddr := flag.String("udp", "127.0.0.1:4172", "UDP echo listen address")
+	udpDCVAddr := flag.String("udp-dcv", "127.0.0.1:8443", "UDP stream listen address standing in for DCV")
 	magic := flag.String("magic", "PFLT", "UDP echo magic prefix")
 	flag.Parse()
 
@@ -61,22 +62,19 @@ func main() {
 		log.Fatalf("udp listen %s: %v", *udpAddr, err)
 	}
 	log.Printf("mockprobe: udp listen %s", *udpAddr)
-	go func() {
-		buf := make([]byte, 1500)
-		for {
-			n, addr, err := pc.ReadFrom(buf)
-			if err != nil {
-				return
-			}
-			if n >= len(*magic) && string(buf[:len(*magic)]) == *magic {
-				_, _ = pc.WriteTo(buf[:n], addr)
-			}
-		}
-	}()
+	go serveUDP(pc, *magic)
+
+	pcDCV, err := net.ListenPacket("udp", *udpDCVAddr)
+	if err != nil {
+		log.Fatalf("udp listen %s: %v", *udpDCVAddr, err)
+	}
+	log.Printf("mockprobe: udp (dcv) listen %s", *udpDCVAddr)
+	go serveUDP(pcDCV, *magic)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
 	_ = httpSrv.Close()
 	_ = pc.Close()
+	_ = pcDCV.Close()
 }
