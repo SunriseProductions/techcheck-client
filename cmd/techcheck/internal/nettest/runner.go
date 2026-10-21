@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/sunriseproductions/techcheck-client/cmd/techcheck/internal/config"
@@ -375,9 +377,45 @@ func ladderSummary(l report.StreamLadder) string {
 	return fmt.Sprintf("%g Mbps clean, %.2f %% loss", l.MaxCleanMbps, loss)
 }
 
-// RunAll fans RunPOP across cfg.POPs with bounded concurrency. It also
-// fetches /preflight/whoami once (from the first POP) to populate the
-// top-level public_ip / detected_geo fields before the per-POP loop starts.
+// SelectFullPOPs picks the POPs that get the full tests, from the phase-1
+// results. A POP is a candidate when its latency was measured: no "latency"
+// error and a median above zero. The nearest candidate is always chosen. The
+// others need a median below maxLatencyMS. The result is in ascending latency
+// (ties by id) and holds at most maxPOPs ids.
+func SelectFullPOPs(quick []report.POPResult, errs []report.Error, maxLatencyMS float64, maxPOPs int) []string {
+	failed := map[string]bool{}
+	for _, e := range errs {
+		if e.Test == "latency" {
+			failed[e.POPID] = true
+		}
+	}
+	var cands []report.POPResult
+	for _, q := range quick {
+		if !failed[q.ID] && q.Latency.MedianMS > 0 {
+			cands = append(cands, q)
+		}
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].Latency.MedianMS != cands[j].Latency.MedianMS {
+			return cands[i].Latency.MedianMS < cands[j].Latency.MedianMS
+		}
+		return cands[i].ID < cands[j].ID
+	})
+	var ids []string
+	for i, c := range cands {
+		if len(ids) >= maxPOPs {
+			break
+		}
+		if i == 0 || c.Latency.MedianMS < maxLatencyMS {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
+// RunAll runs the two phases across cfg.POPs. It also fetches
+// /preflight/whoami once (from the first POP) to populate the top-level
+// public_ip / detected_geo fields before the per-POP tests start.
 func RunAll(ctx context.Context, cfg *config.Config, progress chan<- Progress) (report.Network, []report.Error) {
 	net := report.Network{POPs: []report.POPResult{}}
 
@@ -395,16 +433,92 @@ func RunAll(ctx context.Context, cfg *config.Config, progress chan<- Progress) (
 		net.ClientGeo = geo
 	}
 
-	// Run POPs sequentially. Parallel POP tests saturate consumer broadband
-	// links, causing UDP echo replies to drop and downstream throughput to
-	// time out. Sequential is slower but gives reliable numbers.
-	var allErrs []report.Error
-	for _, pop := range cfg.POPs {
-		res, errs := RunPOP(ctx, POPInput{POP: pop}, cfg, progress)
-		net.POPs = append(net.POPs, res)
-		allErrs = append(allErrs, errs...)
+	ins := make([]POPInput, len(cfg.POPs))
+	for i, pop := range cfg.POPs {
+		ins[i] = POPInput{POP: pop}
 	}
-	return net, allErrs
+	pops, errs := runPOPs(ctx, cfg, ins, progress)
+	net.POPs = append(net.POPs, pops...)
+	return net, errs
+}
+
+// runPOPs is the two-phase run. Phase 1 runs QuickPOP on every POP at once;
+// the checks are light. Phase 2 runs FullPOP one POP at a time, nearest
+// first, because the throughput and stream tests saturate consumer links and
+// would distort each other. Results and errors keep the order of ins.
+func runPOPs(ctx context.Context, cfg *config.Config, ins []POPInput, progress chan<- Progress) ([]report.POPResult, []report.Error) {
+	quick := make([]report.POPResult, len(ins))
+	quickErrs := make([][]report.Error, len(ins))
+	var wg sync.WaitGroup
+	for i := range ins {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			quick[i], quickErrs[i] = QuickPOP(ctx, ins[i], cfg, progress)
+		}()
+	}
+	wg.Wait()
+
+	var flat []report.Error
+	for _, e := range quickErrs {
+		flat = append(flat, e...)
+	}
+	run := cfg.Run.WithDefaults()
+	selected := SelectFullPOPs(quick, flat, run.FullTestMaxLatencyMS, run.FullTestMaxPOPs)
+	isSelected := map[string]bool{}
+	for _, id := range selected {
+		isSelected[id] = true
+	}
+
+	results := make([]report.POPResult, len(ins))
+	copy(results, quick)
+	allErrs := make([][]report.Error, len(ins))
+	copy(allErrs, quickErrs)
+
+	// Far POPs keep their quick result. Their phase-1 row stays as it is when
+	// latency failed; otherwise it becomes a done row that says why.
+	for i := range ins {
+		if isSelected[ins[i].POP.ID] || hasLatencyError(quickErrs[i]) {
+			continue
+		}
+		emitSummary(progress, ins[i].POP.ID, "quick", "done", "",
+			fmt.Sprintf("%.0f ms · quick check only", quick[i].Latency.MedianMS))
+	}
+
+	// Phase 2, nearest first. Only the nearest POP measures clock skew.
+	index := map[string]int{}
+	for i := range ins {
+		index[ins[i].POP.ID] = i
+	}
+	for n, id := range selected {
+		i := index[id]
+		in := ins[i]
+		in.ClockSkew = n == 0
+		res, ferrs := FullPOP(ctx, in, cfg, quick[i], progress)
+		results[i] = res
+		for _, e := range ferrs {
+			// FullPOP measures latency again. Keep one latency error per POP.
+			if e.Test == "latency" && hasLatencyError(quickErrs[i]) {
+				continue
+			}
+			allErrs[i] = append(allErrs[i], e)
+		}
+	}
+
+	var errs []report.Error
+	for _, e := range allErrs {
+		errs = append(errs, e...)
+	}
+	return results, errs
+}
+
+func hasLatencyError(errs []report.Error) bool {
+	for _, e := range errs {
+		if e.Test == "latency" {
+			return true
+		}
+	}
+	return false
 }
 
 // emit sends a Progress event without blocking. If the channel is full or nil
