@@ -145,6 +145,9 @@ func streamServer(t *testing.T, mode streamMode) *testStreamServer {
 				packetBytes := int(binary.BigEndian.Uint16(body[13:15]))
 				duration := time.Duration(binary.BigEndian.Uint32(body[15:19])) * time.Millisecond
 				go sendStream(pc, addr, mode, nonce, rateKbps, packetBytes, duration)
+			default:
+				// Any other PFLT packet is a plain echo probe.
+				_, _ = pc.WriteTo(pkt, addr)
 			}
 		}
 	}()
