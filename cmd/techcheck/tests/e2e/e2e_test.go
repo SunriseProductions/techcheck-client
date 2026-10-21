@@ -5,6 +5,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -81,12 +82,13 @@ func TestFullPipelineAgainstMocks(t *testing.T) {
 		t.Skip("e2e")
 	}
 
-	probeHTTP, probeUDP := freePort(t), freeUDPPort(t)
+	probeHTTP, probeUDP, probeDCVUDP := freePort(t), freeUDPPort(t), freeUDPPort(t)
 	ingestPort := freePort(t)
 
 	probe := startBinary(t, mockprobeBin,
 		"-http", "127.0.0.1:"+probeHTTP,
-		"-udp", "127.0.0.1:"+probeUDP)
+		"-udp", "127.0.0.1:"+probeUDP,
+		"-udp-dcv", "127.0.0.1:"+probeDCVUDP)
 	defer stop(probe)
 
 	ingest := startBinary(t, mockingestBin,
@@ -106,6 +108,14 @@ func TestFullPipelineAgainstMocks(t *testing.T) {
 		POPs: []config.POP{
 			{ID: "local", RegionLabel: "Localhost", Hostname: "127.0.0.1", UDPEcho: true},
 		},
+		Run: config.RunSettings{
+			UDPStream: config.UDPStreamSettings{
+				LadderMbps:      []float64{1, 2},
+				StepSeconds:     1,
+				TeradiciMbps:    1,
+				TeradiciSeconds: 1,
+			},
+		},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -124,14 +134,33 @@ func TestFullPipelineAgainstMocks(t *testing.T) {
 	}()
 	probeHTTPPort := atoi(t, probeHTTP)
 	probeUDPPort := atoi(t, probeUDP)
+	probeDCVUDPPort := atoi(t, probeDCVUDP)
 	popRes, errs := nettest.RunPOP(ctx, nettest.POPInput{
-		POP:      cfg.POPs[0],
-		BaseURL:  "http://127.0.0.1:" + probeHTTP,
-		TCPPort:  probeHTTPPort,
-		UDPPort:  probeUDPPort,
-		ForceTCP: true,
+		POP:     cfg.POPs[0],
+		BaseURL: "http://127.0.0.1:" + probeHTTP,
+		TCPPort: probeHTTPPort,
+		UDPPort: probeUDPPort,
+		// DCV TCP 8443 is plain HTTP here, so the TLS check reads blocked or
+		// intercepted; the test only checks that it is set.
+		DCVTCPPort: probeHTTPPort,
+		DCVUDPPort: probeDCVUDPPort,
+		ForceTCP:   true,
 	}, cfg, prog)
 	close(prog)
+
+	assert.Equal(t, report.DepthFull, popRes.Depth)
+	assert.NotNil(t, popRes.TCP8443)
+	require.NotNil(t, popRes.UDPStream, "errors: %+v", errs)
+	require.NotNil(t, popRes.UDPStream.DCV)
+	assert.Greater(t, popRes.UDPStream.DCV.MaxCleanMbps, 0.0)
+	require.NotNil(t, popRes.UDPStream.Teradici)
+	assert.Less(t, popRes.UDPStream.Teradici.LossPct, 1.0)
+	popJSON, err := json.Marshal(popRes)
+	require.NoError(t, err)
+	var popKeys map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(popJSON, &popKeys))
+	assert.Contains(t, popKeys, "depth")
+	assert.Contains(t, popKeys, "udp_stream")
 
 	r := report.New()
 	r.User.FullName = "E2E Runner"
