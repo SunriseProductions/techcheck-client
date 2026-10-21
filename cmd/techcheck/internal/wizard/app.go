@@ -71,11 +71,16 @@ func NewAppWithConfigAndLivePOPs(cfg *config.Config, popsURL string, timeout tim
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		pops, err := popsfetch.Fetch(ctx, popsURL, timeout)
+		res, err := popsfetch.Fetch(ctx, popsURL, timeout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "preflight: pops fetch failed, using baked-in list: %v\n", err)
-		} else if len(pops) > 0 {
-			cfg.POPs = pops
+		} else {
+			if len(res.POPs) > 0 {
+				cfg.POPs = res.POPs
+			}
+			if res.Run != nil {
+				cfg.Run = res.Run.WithDefaults()
+			}
 		}
 	}
 	return &App{cfg: cfg, emitFn: emit}

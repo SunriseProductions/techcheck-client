@@ -81,6 +81,25 @@ func TestNewAppUsesLivePOPsWhenReachable(t *testing.T) {
 	assert.Equal(t, "live-1", app.POPs()[0].ID)
 }
 
+func TestNewAppAppliesLiveRunSettings(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"schema":"pops.v1","pops":[],"run":{
+			"full_test_max_latency_ms":60.0,"full_test_max_pops":5}}`))
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		POPs: []config.POP{{ID: "baked-1"}},
+		Run:  config.DefaultRunSettings(),
+	}
+	app := wizard.NewAppWithConfigAndLivePOPs(cfg, srv.URL, 2*time.Second)
+	assert.Equal(t, "baked-1", app.POPs()[0].ID, "empty live POP list keeps baked-in POPs")
+	assert.Equal(t, 60.0, cfg.Run.FullTestMaxLatencyMS)
+	assert.Equal(t, 5, cfg.Run.FullTestMaxPOPs)
+	assert.Equal(t, 8443, cfg.Run.DCVTCPPort, "missing fields take defaults")
+	assert.Equal(t, 1250, cfg.Run.UDPStream.PacketBytes)
+}
+
 func TestNewAppFallsBackWhenFetchFails(t *testing.T) {
 	cfg := &config.Config{
 		IngestURL: "http://127.0.0.1:1",
