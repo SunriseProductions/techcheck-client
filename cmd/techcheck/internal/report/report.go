@@ -176,17 +176,66 @@ type ClientGeo struct {
 }
 
 type POPResult struct {
-	ID          string        `json:"id"`
-	RegionLabel string        `json:"region_label"`
-	Latency     LatencyResult `json:"latency"`
-	Throughput  Throughput    `json:"throughput"`
-	Jitter      Jitter        `json:"jitter"`
-	Loss        Loss          `json:"loss"`
-	MTU         MTUResult     `json:"mtu"`
-	ClockSkewMS int64         `json:"clock_skew_ms"`
-	UDP4172     Reachability  `json:"udp_4172"`
-	TCP443      Reachability  `json:"tcp_443"`
-	DNSMS       int64         `json:"dns_ms"`
+	ID          string           `json:"id"`
+	RegionLabel string           `json:"region_label"`
+	Depth       string           `json:"depth"` // DepthFull | DepthQuick
+	Latency     LatencyResult    `json:"latency"`
+	Throughput  *Throughput      `json:"throughput,omitempty"`
+	Jitter      *Jitter          `json:"jitter,omitempty"`
+	Loss        *Loss            `json:"loss,omitempty"`
+	MTU         *MTUResult       `json:"mtu,omitempty"`
+	ClockSkewMS *int64           `json:"clock_skew_ms,omitempty"`
+	UDP4172     Reachability     `json:"udp_4172"`
+	TCP443      Reachability     `json:"tcp_443"`
+	TCP8443     *TLSReachability `json:"tcp_8443,omitempty"`
+	UDP8443     *Reachability    `json:"udp_8443,omitempty"`
+	UDPStream   *UDPStream       `json:"udp_stream,omitempty"`
+	DNSMS       int64            `json:"dns_ms"`
+}
+
+// Depth values for POPResult.Depth. Quick POPs carry latency and port
+// checks only.
+const (
+	DepthFull  = "full"
+	DepthQuick = "quick"
+)
+
+// Values for StreamRun.LargePackets and StreamLadder.LargePackets.
+const (
+	LargePacketsOK      = "ok"
+	LargePacketsDropped = "dropped"
+)
+
+type TLSReachability struct {
+	Status         string `json:"status"` // "reachable" | "blocked"
+	TLSIntercepted bool   `json:"tls_intercepted"`
+}
+
+type StreamStep struct {
+	Mbps       float64 `json:"mbps"`
+	Sent       int     `json:"sent"`
+	Received   int     `json:"received"`
+	LossPct    float64 `json:"loss_pct"`
+	JitterMS   float64 `json:"jitter_ms"`
+	ReorderPct float64 `json:"reorder_pct"`
+}
+
+type StreamRun struct {
+	Port int `json:"port"`
+	StreamStep
+	LargePackets string `json:"large_packets"`
+}
+
+type StreamLadder struct {
+	Port         int          `json:"port"`
+	MaxCleanMbps float64      `json:"max_clean_mbps"`
+	LargePackets string       `json:"large_packets"`
+	Steps        []StreamStep `json:"steps"`
+}
+
+type UDPStream struct {
+	Teradici *StreamRun    `json:"teradici,omitempty"`
+	DCV      *StreamLadder `json:"dcv,omitempty"`
 }
 
 type LatencyResult struct {
