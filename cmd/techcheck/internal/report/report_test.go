@@ -124,3 +124,10 @@ func TestStreamRunFlattensStep(t *testing.T) {
 	assert.Equal(t, "ok", m["large_packets"])
 	assert.NotContains(t, m, "StreamStep")
 }
+
+func TestThroughputOmitsUnmeasuredDirection(t *testing.T) {
+	down := 42.5
+	b, err := json.Marshal(report.Throughput{DownMbps: &down})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"down_mbps":42.5}`, string(b))
+}
