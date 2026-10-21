@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,4 +403,127 @@ func TestFullPOPFailedMeasurementsStayNil(t *testing.T) {
 	}
 	assert.Contains(t, tests, "throughput_down")
 	assert.Contains(t, tests, "clock_skew")
+}
+
+func quickAt(id string, median float64) report.POPResult {
+	return report.POPResult{ID: id, Latency: report.LatencyResult{MedianMS: median}}
+}
+
+func TestSelectFullPOPs(t *testing.T) {
+	cases := []struct {
+		name  string
+		quick []report.POPResult
+		max   float64
+		pops  int
+		want  []string
+	}{
+		{"single near POP", []report.POPResult{quickAt("a", 20)}, 100, 3, []string{"a"}},
+		{"two under 100 ms", []report.POPResult{quickAt("a", 30), quickAt("b", 60), quickAt("c", 150)}, 100, 3, []string{"a", "b"}},
+		{"four under 100 ms capped at 3", []report.POPResult{
+			quickAt("a", 10), quickAt("b", 20), quickAt("c", 30), quickAt("d", 40),
+		}, 100, 3, []string{"a", "b", "c"}},
+		{"nearest over 100 ms still chosen alone", []report.POPResult{quickAt("a", 180), quickAt("b", 220)}, 100, 3, []string{"a"}},
+		{"ties ordered by id", []report.POPResult{quickAt("b", 20), quickAt("a", 20), quickAt("c", 20)}, 100, 2, []string{"a", "b"}},
+		{"ascending latency", []report.POPResult{quickAt("a", 80), quickAt("b", 10), quickAt("c", 40)}, 100, 3, []string{"b", "c", "a"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, nettest.SelectFullPOPs(tc.quick, nil, tc.max, tc.pops))
+		})
+	}
+}
+
+func TestSelectFullPOPsSkipsFailedLatency(t *testing.T) {
+	quick := []report.POPResult{quickAt("dead", 0), quickAt("b", 50), quickAt("c", 30)}
+	errs := []report.Error{{POPID: "c", Test: "latency", Message: "boom"}}
+	assert.Equal(t, []string{"b"}, nettest.SelectFullPOPs(quick, errs, 100, 3))
+}
+
+func TestSelectFullPOPsNoneWhenAllLatencyFailed(t *testing.T) {
+	quick := []report.POPResult{quickAt("a", 0), quickAt("b", 0)}
+	errs := []report.Error{
+		{POPID: "a", Test: "latency", Message: "x"},
+		{POPID: "b", Test: "latency", Message: "y"},
+	}
+	assert.Empty(t, nettest.SelectFullPOPs(quick, errs, 100, 3))
+}
+
+func TestRunAllQuickForFarPOPs(t *testing.T) {
+	srv := quickProbeServer(t)
+	udp := streamServer(t, streamNormal)
+	host, port := hostPort(t, srv.Listener.Addr().String())
+	cfg := &config.Config{PerTestTimeoutSeconds: 3, UDPProbeMagic: "PFLT", Run: tinyRunSettings()}
+	// A tiny threshold leaves only the nearest POP qualifying.
+	cfg.Run.FullTestMaxLatencyMS = 0.000001
+	var ins []nettest.POPInput
+	for _, id := range []string{"a", "b"} {
+		ins = append(ins, nettest.POPInput{
+			POP:     config.POP{ID: id, RegionLabel: id, Hostname: host, UDPEcho: true},
+			BaseURL: srv.URL, TCPPort: port, UDPPort: udp.port,
+			DCVTCPPort: 1, DCVUDPPort: udp.port, ForceTCP: true,
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	progress := make(chan nettest.Progress, 512)
+	pops, errs := nettest.RunPOPs(ctx, cfg, ins, progress)
+	rows := collectProgress(progress)
+
+	require.Len(t, pops, 2)
+	assert.Equal(t, []string{"a", "b"}, []string{pops[0].ID, pops[1].ID})
+	depths := []string{pops[0].Depth, pops[1].Depth}
+	assert.ElementsMatch(t, []string{report.DepthFull, report.DepthQuick}, depths)
+	for _, e := range errs {
+		assert.NotEqual(t, "latency", e.Test)
+	}
+
+	var far string
+	for _, p := range pops {
+		if p.Depth == report.DepthQuick {
+			far = p.ID
+			assert.Nil(t, p.Throughput)
+		}
+	}
+	var quickOnly int
+	for _, r := range rows {
+		if r.POPID == far && r.Test == "quick" && r.Phase == "done" && strings.HasSuffix(r.Summary, " ms · quick check only") {
+			quickOnly++
+		}
+		if r.POPID == far {
+			assert.Contains(t, []string{"quick"}, r.Test)
+		}
+	}
+	assert.Equal(t, 1, quickOnly)
+}
+
+func TestRunAllWithAllPOPsUnreachable(t *testing.T) {
+	cfg := &config.Config{
+		PerTestTimeoutSeconds: 1,
+		UDPProbeMagic:         "PFLT",
+		Run:                   tinyRunSettings(),
+		POPs: []config.POP{
+			{ID: "x", Hostname: "127.0.0.1"},
+			{ID: "y", Hostname: "127.0.0.1"},
+		},
+	}
+	cfg.Run.DCVTCPPort = 1
+	cfg.Run.DCVUDPPort = 1
+	var ins []nettest.POPInput
+	for _, p := range cfg.POPs {
+		ins = append(ins, nettest.POPInput{
+			POP: p, BaseURL: "http://127.0.0.1:1", TCPPort: 1, UDPPort: 1,
+			DCVTCPPort: 1, DCVUDPPort: 1, ForceTCP: true,
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pops, errs := nettest.RunPOPs(ctx, cfg, ins, make(chan nettest.Progress, 64))
+
+	require.Len(t, pops, 2)
+	for _, p := range pops {
+		assert.Equal(t, report.DepthQuick, p.Depth)
+	}
+	assert.NotEmpty(t, errs)
 }

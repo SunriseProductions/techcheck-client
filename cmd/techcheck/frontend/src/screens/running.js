@@ -4,7 +4,7 @@ export function renderRunning(root, { state }) {
   const rows = [...state.progress.entries()].map(([, v]) => renderRow(v)).join('');
   root.innerHTML = `
     <h1>Running tests</h1>
-    <p>This takes 3 minutes. You can cancel at any time.</p>
+    <p>This takes about two minutes. You can cancel at any time.</p>
     <div id="rows" class="progress-rows">${rows}</div>
     <div class="actions">
       <button class="secondary" id="cancel">Cancel</button>
