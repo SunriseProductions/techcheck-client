@@ -346,6 +346,39 @@ func TestFullPOPSkipsStreamsWhenUDPBlocked(t *testing.T) {
 	assert.Nil(t, res.ClockSkewMS, "clock skew only when asked for")
 }
 
+func TestFullPOPKeepsDownloadWhenUploadFails(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/preflight/download/10mb", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(loopbackDelay)
+		_, _ = w.Write(make([]byte, 1<<19))
+	})
+	mux.HandleFunc("/preflight/upload", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	host, port := hostPort(t, srv.Listener.Addr().String())
+	cfg := &config.Config{PerTestTimeoutSeconds: 3, UDPProbeMagic: "PFLT", Run: tinyRunSettings()}
+	pin := nettest.POPInput{
+		POP: config.POP{ID: "d", Hostname: host}, BaseURL: srv.URL, TCPPort: port,
+		UDPPort: 1, DCVUDPPort: 1, DCVTCPPort: 1, ForceTCP: true,
+	}
+	quick, _ := nettest.QuickPOP(context.Background(), pin, cfg, nil)
+	res, errs := nettest.FullPOP(context.Background(), pin, cfg, quick, nil)
+
+	require.NotNil(t, res.Throughput)
+	require.NotNil(t, res.Throughput.DownMbps)
+	assert.Nil(t, res.Throughput.UpMbps)
+	var tests []string
+	for _, e := range errs {
+		tests = append(tests, e.Test)
+	}
+	assert.Contains(t, tests, "throughput_up")
+	assert.NotContains(t, tests, "throughput_down")
+	b, err := json.Marshal(res.Throughput)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "down_mbps")
+	assert.NotContains(t, string(b), "up_mbps")
+}
+
 func TestFullPOPFailedMeasurementsStayNil(t *testing.T) {
 	// No HTTP endpoints: throughput, jitter and clock skew fail.
 	udp := streamServer(t, streamNormal)

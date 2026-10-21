@@ -204,17 +204,15 @@ func FullPOP(ctx context.Context, in POPInput, cfg *config.Config, quick report.
 	totalAttempts += latAttempts
 	totalDropped += latDropped
 
-	// Throughput. Set only when both directions were measured.
+	// Throughput. Each direction is set only when it was measured.
 	var tp report.Throughput
-	downOK, upOK := false, false
 	emit(progress, in.POP.ID, "throughput_down", "start", "")
 	dctx, dcancel := context.WithTimeout(ctx, timeout)
 	if mbps, err := MeasureDownload(dctx, s.baseURL+"/preflight/download/10mb"); err != nil {
 		errs = append(errs, report.Error{POPID: in.POP.ID, Test: "throughput_down", Message: err.Error()})
 		emit(progress, in.POP.ID, "throughput_down", "failed", err.Error())
 	} else {
-		tp.DownMbps = mbps
-		downOK = true
+		tp.DownMbps = &mbps
 		emitSummary(progress, in.POP.ID, "throughput_down", "done", "",
 			fmt.Sprintf("%.1f Mbps", mbps))
 	}
@@ -226,13 +224,12 @@ func FullPOP(ctx context.Context, in POPInput, cfg *config.Config, quick report.
 		errs = append(errs, report.Error{POPID: in.POP.ID, Test: "throughput_up", Message: err.Error()})
 		emit(progress, in.POP.ID, "throughput_up", "failed", err.Error())
 	} else {
-		tp.UpMbps = mbps
-		upOK = true
+		tp.UpMbps = &mbps
 		emitSummary(progress, in.POP.ID, "throughput_up", "done", "",
 			fmt.Sprintf("%.1f Mbps", mbps))
 	}
 	ucancel()
-	if downOK && upOK {
+	if tp.DownMbps != nil || tp.UpMbps != nil {
 		res.Throughput = &tp
 	}
 

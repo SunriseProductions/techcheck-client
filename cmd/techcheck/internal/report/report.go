@@ -248,8 +248,8 @@ type LatencyResult struct {
 }
 
 type Throughput struct {
-	DownMbps float64 `json:"down_mbps"`
-	UpMbps   float64 `json:"up_mbps"`
+	DownMbps *float64 `json:"down_mbps,omitempty"`
+	UpMbps   *float64 `json:"up_mbps,omitempty"`
 }
 
 type Jitter struct {
