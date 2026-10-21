@@ -21,7 +21,8 @@ type StreamPacket struct {
 // Duplicates count once. Reorder counts packets whose seq is below the highest
 // seq already seen. Jitter is the RFC 3550 interarrival jitter over transit
 // time (RecvNS - SendNS); the clock offset between beacon and client cancels
-// out in the differences.
+// out in the differences. Jitter is nil when fewer than 2 distinct packets
+// arrived, and reorder is nil when none did: neither was measured.
 func StreamStats(rateMbps float64, totalSent int, pkts []StreamPacket) report.StreamStep {
 	seen := make(map[uint32]bool, len(pkts))
 	var (
@@ -59,7 +60,6 @@ func StreamStats(rateMbps float64, totalSent int, pkts []StreamPacket) report.St
 		Mbps:     rateMbps,
 		Sent:     total,
 		Received: received,
-		JitterMS: jitterNS / 1e6,
 		LossPct:  100,
 	}
 	if total > 0 {
@@ -67,7 +67,12 @@ func StreamStats(rateMbps float64, totalSent int, pkts []StreamPacket) report.St
 		step.LossPct = float64(lost) * 100 / float64(total)
 	}
 	if received > 0 {
-		step.ReorderPct = float64(reordered) * 100 / float64(received)
+		reorder := float64(reordered) * 100 / float64(received)
+		step.ReorderPct = &reorder
+	}
+	if received > 1 {
+		jitter := jitterNS / 1e6
+		step.JitterMS = &jitter
 	}
 	return step
 }

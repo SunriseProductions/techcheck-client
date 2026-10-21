@@ -38,6 +38,7 @@ const (
 	streamVersion      = 1
 	streamReadBuffer   = 4 << 20
 	streamEndGrace     = time.Second
+	streamLateWait     = 60 * time.Millisecond
 	streamBusyFallback = 5 * time.Second
 	streamNonceLen     = 8
 	streamCookieLen    = 16
@@ -256,15 +257,17 @@ func streamBusy(rest []byte) error {
 }
 
 // receiveStream collects D packets until an E arrives or the deadline
-// passes. It returns the total_sent from E and whether E arrived. A B means
-// the beacon had no free slot and started no stream. Packets of other types
-// or with another nonce are ignored.
+// passes. After the first E it reads on for streamLateWait, so D packets
+// reordered behind E still count. It returns the total_sent from E and
+// whether E arrived. A B means the beacon had no free slot and started no
+// stream. Packets of other types or with another nonce are ignored.
 func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, deadline time.Time) ([]StreamPacket, int, bool, error) {
 	if err := conn.SetReadDeadline(deadline); err != nil {
 		return nil, 0, false, err
 	}
 	buf := make([]byte, 64<<10)
 	var pkts []StreamPacket
+	totalSent, gotEnd := 0, false
 	for {
 		n, err := conn.Read(buf)
 		recvNS := time.Now().UnixNano()
@@ -273,7 +276,7 @@ func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, 
 				return nil, 0, false, ctx.Err()
 			}
 			if errors.Is(err, os.ErrDeadlineExceeded) {
-				return pkts, 0, false, nil
+				return pkts, totalSent, gotEnd, nil
 			}
 			return nil, 0, false, err
 		}
@@ -293,12 +296,17 @@ func receiveStream(ctx context.Context, conn *net.UDPConn, magic, nonce []byte, 
 				RecvNS: recvNS,
 			})
 		case 'E':
-			if len(rest) < 4 {
+			if gotEnd || len(rest) < 4 {
 				continue
 			}
-			return pkts, int(binary.BigEndian.Uint32(rest[0:4])), true, nil
+			totalSent, gotEnd = int(binary.BigEndian.Uint32(rest[0:4])), true
+			if late := time.Now().Add(streamLateWait); late.Before(deadline) {
+				if err := conn.SetReadDeadline(late); err != nil {
+					return nil, 0, false, err
+				}
+			}
 		case 'B':
-			if len(rest) < 2 {
+			if gotEnd || len(rest) < 2 {
 				continue
 			}
 			return nil, 0, false, streamBusy(rest)

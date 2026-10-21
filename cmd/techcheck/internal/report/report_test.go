@@ -131,3 +131,13 @@ func TestThroughputOmitsUnmeasuredDirection(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"down_mbps":42.5}`, string(b))
 }
+
+func TestStreamStepOmitsUnmeasuredJitterAndReorder(t *testing.T) {
+	b, err := json.Marshal(report.StreamStep{Mbps: 5, Sent: 100, LossPct: 100})
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.NotContains(t, m, "jitter_ms")
+	assert.NotContains(t, m, "reorder_pct")
+	assert.EqualValues(t, 100, m["loss_pct"])
+}
