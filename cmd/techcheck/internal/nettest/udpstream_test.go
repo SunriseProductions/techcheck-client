@@ -37,6 +37,16 @@ func TestStreamAgainstNormalServer(t *testing.T) {
 	assert.Equal(t, 0.0, step.LossPct)
 }
 
+func TestStreamCountsDataAfterFirstEnd(t *testing.T) {
+	srv := streamServer(t, streamLateData)
+
+	step, _, err := nettest.MeasureUDPStream(context.Background(), streamInput(srv))
+	require.NoError(t, err)
+	assert.Equal(t, 60, step.Sent)
+	assert.Equal(t, 60, step.Received, "a data packet that arrives just after the end marker still counts")
+	assert.Equal(t, 0.0, step.LossPct)
+}
+
 func TestStreamAgainstEchoOnlyServer(t *testing.T) {
 	srv := streamServer(t, streamEchoOnly)
 	in := streamInput(srv)

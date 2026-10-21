@@ -212,12 +212,12 @@ type TLSReachability struct {
 }
 
 type StreamStep struct {
-	Mbps       float64 `json:"mbps"`
-	Sent       int     `json:"sent"`
-	Received   int     `json:"received"`
-	LossPct    float64 `json:"loss_pct"`
-	JitterMS   float64 `json:"jitter_ms"`
-	ReorderPct float64 `json:"reorder_pct"`
+	Mbps       float64  `json:"mbps"`
+	Sent       int      `json:"sent"`
+	Received   int      `json:"received"`
+	LossPct    float64  `json:"loss_pct"`
+	JitterMS   *float64 `json:"jitter_ms,omitempty"`   // nil when fewer than 2 packets arrived
+	ReorderPct *float64 `json:"reorder_pct,omitempty"` // nil when no packet arrived
 }
 
 type StreamRun struct {

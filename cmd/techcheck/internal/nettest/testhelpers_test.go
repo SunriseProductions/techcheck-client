@@ -73,6 +73,9 @@ const (
 	// streamLossyAbove10 is streamNormal, but skips every 20th packet (5 %)
 	// when the rate is above 10 Mbps.
 	streamLossyAbove10 streamMode = "lossyAbove10"
+	// streamLateData is streamNormal, but holds back the last D packet until
+	// 10 ms after the first E, as when the path reorders it.
+	streamLateData streamMode = "lateData"
 )
 
 // testStreamServer is a UDP beacon that speaks the stream wire format.
@@ -178,6 +181,9 @@ func sendStream(pc net.PacketConn, addr net.Addr, mode streamMode, nonce []byte,
 				if drop && seq%20 == 0 {
 					continue
 				}
+				if mode == streamLateData && seq == total-1 {
+					continue
+				}
 				binary.BigEndian.PutUint32(pkt[13:], uint32(seq))
 				binary.BigEndian.PutUint64(pkt[17:], uint64(time.Now().UnixNano()))
 				if _, err := pc.WriteTo(pkt, addr); err != nil {
@@ -193,6 +199,17 @@ func sendStream(pc net.PacketConn, addr net.Addr, mode streamMode, nonce []byte,
 	for i := 0; i < 3; i++ {
 		if _, err := pc.WriteTo(end, addr); err != nil {
 			return
+		}
+		if i == 0 && mode == streamLateData {
+			time.Sleep(10 * time.Millisecond)
+			late := make([]byte, packetBytes)
+			copy(late, "PFLTD")
+			copy(late[5:], nonce)
+			binary.BigEndian.PutUint32(late[13:], uint32(total-1))
+			binary.BigEndian.PutUint64(late[17:], uint64(time.Now().UnixNano()))
+			if _, err := pc.WriteTo(late, addr); err != nil {
+				return
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

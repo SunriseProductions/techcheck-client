@@ -68,7 +68,7 @@ func TestRunPOPHappyPath(t *testing.T) {
 
 	res, errs := nettest.RunPOP(ctx, nettest.POPInput{
 		POP: pop, BaseURL: srv.URL, TCPPort: port, UDPPort: udp.port, DCVUDPPort: udp.port,
-		ForceTCP: true, ClockSkew: true,
+		DCVTCPPort: 1, ForceTCP: true, ClockSkew: true,
 	}, cfg, progress)
 	close(progress)
 	<-progressDone
@@ -117,7 +117,7 @@ func TestRunPOPRespectsUDPEchoFlag(t *testing.T) {
 	defer cancel()
 
 	res, _ := nettest.RunPOP(ctx, nettest.POPInput{
-		POP: pop, BaseURL: srv.URL, TCPPort: port, UDPPort: 1, ForceTCP: true,
+		POP: pop, BaseURL: srv.URL, TCPPort: port, UDPPort: 1, DCVUDPPort: 1, DCVTCPPort: 1, ForceTCP: true,
 	}, cfg, nil)
 
 	assert.Equal(t, report.ReachabilityBlocked, res.UDP4172.Status)

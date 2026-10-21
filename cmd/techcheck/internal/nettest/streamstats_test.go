@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sunriseproductions/techcheck-client/cmd/techcheck/internal/nettest"
 )
@@ -47,6 +48,8 @@ func TestStreamStats(t *testing.T) {
 		wantLoss    float64
 		wantReorder float64
 		wantJitter  float64
+		noReorder   bool // reorder unmeasured: nothing arrived
+		noJitter    bool // jitter unmeasured: fewer than 2 packets arrived
 	}{
 		{
 			name: "no loss", totalSent: 100, seqs: inOrder(100), transit: constTransit,
@@ -69,6 +72,14 @@ func TestStreamStats(t *testing.T) {
 			seqs: []uint32{0, 1, 2, 4}, transit: constTransit,
 			wantSent: 5, wantRecv: 4, wantLoss: 20.0,
 		},
+		{
+			name: "nothing received", totalSent: 100, seqs: nil, transit: constTransit,
+			wantSent: 100, wantRecv: 0, wantLoss: 100.0, noReorder: true, noJitter: true,
+		},
+		{
+			name: "one unique packet received", totalSent: 100, seqs: []uint32{0, 0}, transit: constTransit,
+			wantSent: 100, wantRecv: 1, wantLoss: 99.0, noJitter: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,8 +88,18 @@ func TestStreamStats(t *testing.T) {
 			assert.Equal(t, tc.wantSent, got.Sent)
 			assert.Equal(t, tc.wantRecv, got.Received)
 			assert.InDelta(t, tc.wantLoss, got.LossPct, 1e-9)
-			assert.InDelta(t, tc.wantReorder, got.ReorderPct, 1e-9)
-			assert.InDelta(t, tc.wantJitter, got.JitterMS, 1e-9)
+			if tc.noReorder {
+				assert.Nil(t, got.ReorderPct)
+			} else {
+				require.NotNil(t, got.ReorderPct)
+				assert.InDelta(t, tc.wantReorder, *got.ReorderPct, 1e-9)
+			}
+			if tc.noJitter {
+				assert.Nil(t, got.JitterMS)
+			} else {
+				require.NotNil(t, got.JitterMS)
+				assert.InDelta(t, tc.wantJitter, *got.JitterMS, 1e-9)
+			}
 		})
 	}
 }
@@ -97,7 +118,8 @@ func TestStreamStatsJitterFollowsRFC3550(t *testing.T) {
 	for range 2 {
 		j += (2.0 - j) / 16
 	}
-	assert.InDelta(t, j, got.JitterMS, 1e-9)
+	require.NotNil(t, got.JitterMS)
+	assert.InDelta(t, j, *got.JitterMS, 1e-9)
 }
 
 func TestStreamStatsNoPackets(t *testing.T) {
