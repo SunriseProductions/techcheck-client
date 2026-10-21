@@ -96,3 +96,31 @@ func TestReportMarshalsAppID(t *testing.T) {
 		t.Fatalf("json app_id = %v, want sunrise-techcheck", m["app_id"])
 	}
 }
+
+func TestQuickPOPOmitsFullFields(t *testing.T) {
+	pop := report.POPResult{ID: "syd", Depth: report.DepthQuick}
+	b, err := json.Marshal(pop)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.Equal(t, "quick", m["depth"])
+	for _, k := range []string{"throughput", "jitter", "loss", "mtu", "clock_skew_ms", "udp_stream"} {
+		assert.NotContains(t, m, k)
+	}
+}
+
+func TestStreamRunFlattensStep(t *testing.T) {
+	run := report.StreamRun{
+		Port:         8443,
+		StreamStep:   report.StreamStep{Mbps: 10, Sent: 100, Received: 99, LossPct: 1},
+		LargePackets: report.LargePacketsOK,
+	}
+	b, err := json.Marshal(run)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.EqualValues(t, 8443, m["port"])
+	assert.EqualValues(t, 1, m["loss_pct"])
+	assert.Equal(t, "ok", m["large_packets"])
+	assert.NotContains(t, m, "StreamStep")
+}

@@ -51,7 +51,15 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 	}
 	host := in.POP.Hostname
 
-	res := report.POPResult{ID: in.POP.ID, RegionLabel: in.POP.RegionLabel}
+	// Full runs always report these fields; failed tests leave zero values.
+	var zeroSkew int64
+	res := report.POPResult{
+		ID: in.POP.ID, RegionLabel: in.POP.RegionLabel, Depth: report.DepthFull,
+		Throughput:  &report.Throughput{},
+		Jitter:      &report.Jitter{},
+		Loss:        &report.Loss{},
+		ClockSkewMS: &zeroSkew,
+	}
 	var errs []report.Error
 
 	timeout := time.Duration(cfg.PerTestTimeoutSeconds) * time.Second
@@ -135,7 +143,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 		errs = append(errs, report.Error{POPID: in.POP.ID, Test: "jitter", Message: err.Error()})
 		emit(progress, in.POP.ID, "jitter", "failed", err.Error())
 	} else {
-		res.Jitter = jit
+		res.Jitter = &jit
 		emitSummary(progress, in.POP.ID, "jitter", "done", "",
 			JitterSummary(jit))
 	}
@@ -163,7 +171,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 	} else {
 		emitSummary(progress, in.POP.ID, "mtu", "done", "", mtu.Status)
 	}
-	res.MTU = mtu
+	res.MTU = &mtu
 
 	// Clock skew.
 	emit(progress, in.POP.ID, "clock_skew", "start", "")
@@ -172,7 +180,7 @@ func RunPOP(ctx context.Context, in POPInput, cfg *config.Config, progress chan<
 		errs = append(errs, report.Error{POPID: in.POP.ID, Test: "clock_skew", Message: err.Error()})
 		emit(progress, in.POP.ID, "clock_skew", "failed", err.Error())
 	} else {
-		res.ClockSkewMS = skew
+		res.ClockSkewMS = &skew
 		emitSummary(progress, in.POP.ID, "clock_skew", "done", "",
 			fmt.Sprintf("%d ms", skew))
 	}
