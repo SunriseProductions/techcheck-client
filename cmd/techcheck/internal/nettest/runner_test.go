@@ -472,6 +472,11 @@ func TestRunAllQuickForFarPOPs(t *testing.T) {
 
 	require.Len(t, pops, 2)
 	assert.Equal(t, []string{"a", "b"}, []string{pops[0].ID, pops[1].ID})
+	// A TCP connect on loopback can finish inside one Windows clock tick. Both
+	// POPs then read 0 ms, which selection treats as unmeasured.
+	if pops[0].Latency.MedianMS == 0 && pops[1].Latency.MedianMS == 0 {
+		t.Skip("loopback latency below the clock resolution")
+	}
 	depths := []string{pops[0].Depth, pops[1].Depth}
 	assert.ElementsMatch(t, []string{report.DepthFull, report.DepthQuick}, depths)
 	for _, e := range errs {
