@@ -7,10 +7,12 @@ A cross-platform desktop tool that checks whether your machine and network are r
 1. Asks for your name and email on a short consent screen (pre-filled from the last run on this machine).
 2. Collects machine information (OS, CPU, RAM, GPU, displays, USB count, network adapters with Wi-Fi detection, VPN/AV/firewall state, a stable machine ID).
 3. Fetches a city-level client location via ipinfo.io.
-4. Runs network measurements against every Sunrise region sequentially: latency, down/up throughput, jitter under load, MTU, clock skew, UDP 4172 reachability, and DNS timing.
+4. Runs network measurements in two phases:
+   - A quick check of every Sunrise region at once: latency, DNS timing, TCP 443 and 8443, and UDP 4172 and 8443 reachability.
+   - Full tests on the nearest regions, one at a time (up to three, within a latency limit the server sets): down/up throughput, jitter under load, MTU, clock skew, a UDP stream test on 4172 (Teradici), and on 8443 a TLS interception check and a UDP stream at rising rates (Amazon DCV).
 5. Uploads the structured report to Sunrise's ingest service. A copy saves to your Desktop either way.
 
-Takes about three minutes. You can cancel at any time.
+Takes about one to two minutes. You can cancel at any time.
 
 ## What it does NOT do
 
